@@ -1,0 +1,38 @@
+name: COCOT Ultra CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: '3.10'
+  OPENAI_MODEL: 'gpt-4o'
+
+jobs:
+  test:
+    name: 🧪 Run Matrix Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        test-type: ["unitario", "integracao", "e2e", "carga"]
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Run ${{ matrix.test-type }} tests
+      run: |
+        if [ "${{ matrix.test-type }}" = "carga" ]; then
+          timeout 2700 python scripts/test_runner.py carga             --module "app"             --config config/test_config.json             --model $OPENAI_MODEL
+        else
+          python scripts/test_runner.py ${{ matrix.test-type }}             --module "app"             --config config/test_config.json             --model $OPENAI_MODEL
+        fi
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        REDIS_URL: "redis://localhost:6379"
+        OPENAI_MODEL: ${{ env.OPENAI_MODEL }}
