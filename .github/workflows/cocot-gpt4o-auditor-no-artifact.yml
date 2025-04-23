@@ -1,4 +1,4 @@
-name: 🔍 CoCoT GPT-4o Auditor
+name: 🔍 CoCoT GPT-4o Auditor (sem artefato)
 
 on:
   workflow_dispatch:
@@ -39,12 +39,3 @@ jobs:
       env:
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         OPENAI_MODEL: ${{ env.OPENAI_MODEL }}
-
-    - name: 📤 Publicar Resultados
-      uses: actions/upload-artifact@v3.1.3
-      with:
-        name: relatorios-gpt4o
-        path: |
-          relatorios/
-          audit_summary.md
-          audit_report.json
