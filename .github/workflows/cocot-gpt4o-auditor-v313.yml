@@ -41,7 +41,7 @@ jobs:
         OPENAI_MODEL: ${{ env.OPENAI_MODEL }}
 
     - name: 📤 Publicar Resultados
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v3.1.3
       with:
         name: relatorios-gpt4o
         path: |
