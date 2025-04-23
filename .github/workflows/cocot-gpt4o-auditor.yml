@@ -28,42 +28,23 @@ jobs:
         python -m venv venv
         source venv/bin/activate
         pip install -r requirements.txt
+        pip install openai
 
     - name: 🧠 Rodar Auditor GPT-4o
       run: |
-        python scripts/omni_audit.py \
-          --api_key ${{ secrets.OPENAI_API_KEY }} \
+        python audit_runner.py \
           --model $OPENAI_MODEL \
-          --src_path src/ \
           --prompt_file prompts/Super_Prompt_Auditor.txt \
-          --output_dir relatorios/ \
-          --max_tokens 32000
+          --output_format markdown
       env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         OPENAI_MODEL: ${{ env.OPENAI_MODEL }}
 
-    - name: ♻️ Aplicar Refatorador
-      run: |
-        python scripts/refatorador.py \
-          --input relatorios/diagnostico.json \
-          --apply_changes \
-          --model $OPENAI_MODEL
-      env:
-        OPENAI_MODEL: ${{ env.OPENAI_MODEL }}
-
-    - name: 🔮 Executar Testes Automatizados
-      run: |
-        pytest --cov=src --cov-report=xml
-
-    - name: 📄 Gerar Manifesto
-      run: |
-        python scripts/gerar_manifesto.py \
-          --input relatorios/ \
-          --output manifesto_tecnico.md
-
-    - name: 📤 Publicar Relatórios
+    - name: 📤 Publicar Resultados
       uses: actions/upload-artifact@v3
       with:
         name: relatorios-gpt4o
         path: |
           relatorios/
-          manifesto_tecnico.md
+          audit_summary.md
+          audit_report.json
