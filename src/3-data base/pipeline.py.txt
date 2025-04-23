@@ -1,0 +1,92 @@
+# pipeline.py — Enterprise Plus++
+# Processamento e salvamento padronizado de palavras-chave com ML semântico, cache e rastreabilidade
+
+import os
+import json
+import logging
+from pathlib import Path
+from datetime import datetime
+import uuid
+from database_connection import conectar_banco, cache
+from ml.relevance_predictor import prever_relevancia
+from keywords.utils.texto_helper import gerar_tags
+
+# === Configurações ===
+BASE_DIR = Path(".")
+BACKUP_DIR = BASE_DIR / "backup"
+BACKUP_DIR.mkdir(exist_ok=True, parents=True)
+LOG_PATH = BASE_DIR / "logs"
+LOG_PATH.mkdir(parents=True, exist_ok=True)
+TRACE_ID = str(uuid.uuid4())
+
+# === Logger ===
+log_file = LOG_PATH / f"pipeline_{datetime.now().strftime('%Y%m%d')}.log"
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] [trace_id=%(trace_id)s] %(message)s",
+    handlers=[
+        logging.FileHandler(log_file),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.LoggerAdapter(logging.getLogger("pipeline"), {"trace_id": TRACE_ID})
+
+# === Função principal de processamento ===
+def processar_palavras(palavras, tema, origem="pipeline", fonte="gerador", metodo_geracao="semantico", dry_run=False):
+    db = conectar_banco()
+    resultados = []
+    agora = datetime.utcnow().isoformat()
+
+    for palavra in palavras:
+        try:
+            tags = gerar_tags(palavra)
+            validado, escore = prever_relevancia(palavra, tema, origem, tags)
+            logger.debug(f"Validado: {validado} | Escore: {escore:.4f} | Palavra: {palavra}")
+
+            dados = {
+                "origem": origem,
+                "tema": tema,
+                "palavra": palavra,
+                "tags": ",".join(tags),
+                "escore": round(escore, 4),
+                "validado": validado,
+                "trace_id": TRACE_ID,
+                "criado_em": agora,
+                "fonte": fonte,
+                "metodo_geracao": metodo_geracao
+            }
+
+            if not dry_run:
+                db.executar_modificacao("""
+                    INSERT INTO palavras_chave (
+                        origem, tema, palavra, tags, escore, validado, trace_id, criado_em, fonte, metodo_geracao
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, tuple(dados.values()))
+
+                # Salvar no Redis se disponível
+                if cache:
+                    cache_key = f"chave:{palavra}"
+                    cache.hmset(cache_key, dados)
+                    cache.expire(cache_key, 86400)
+
+            resultados.append(dados)
+
+        except Exception as e:
+            logger.error(f"Erro ao processar '{palavra}': {e}")
+
+    if not dry_run:
+        salvar_backup(resultados, tema)
+    logger.info(f"✅ {len(resultados)} palavras processadas | Tema: {tema} | Origem: {origem}")
+    return resultados
+
+# === Backup incremental em JSON ===
+def salvar_backup(registros, tema):
+    path = BACKUP_DIR / f"{tema}_{TRACE_ID}.json"
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(registros, f, indent=2, ensure_ascii=False)
+    logger.info(f"💾 Backup salvo: {path}")
+
+# === Execução direta (debug) ===
+if __name__ == "__main__":
+    palavras_exemplo = ["estratégia de conteúdo", "SEO para blogs", "engajamento no Instagram"]
+    processar_palavras(palavras_exemplo, tema="marketing", origem="teste")

@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "title": "Audit Configuration",
+  "description": "Configuração para o sistema de auditoria automatizada",
+
+  "required_folders": [
+    "src",
+    "tests",
+    "scripts",
+    "config",
+    "docs"
+  ],
+
+  "security": {
+    "strict_mode": true,
+    "fail_threshold": 90.0,
+    "sensitive_files": [
+      ".env",
+      "config/secrets.json",
+      "config/credentials.*"
+    ],
+    "permission_checks": {
+      "strict_permissions": true,
+      "allowed_modes": ["600", "400", "644"]
+    },
+    "pattern_checks": {
+      "api_key": "([a-zA-Z0-9]{32,})",
+      "password": "(?i)(passw(o|0)r?d|senha)[=:].*",
+      "jwt": "(eyJ[a-zA-Z0-9]+\\.[a-zA-Z0-9]+\\.[a-zA-Z0-9-_]+)"
+    }
+  },
+
+  "performance": {
+    "max_workers": 4,
+    "timeout": 45,
+    "file_processing_timeout": 10,
+    "max_file_size_mb": 5
+  },
+
+  "static_analysis": {
+    "enable": true,
+    "tools": {
+      "bandit": {
+        "config": ".bandit.yml",
+        "args": ["-ll", "-iii"]
+      },
+      "pylint": {
+        "config": ".pylintrc",
+        "threshold": 8.0
+      },
+      "mypy": {
+        "strict": true
+      }
+    }
+  },
+
+  "reporting": {
+    "generate_json": true,
+    "generate_markdown": true,
+    "output_dir": "./reports/audit",
+    "github_annotations": true,
+    "slack_notifications": {
+      "enabled": false,
+      "webhook_url": "${SLACK_WEBHOOK_URL}",
+      "channel": "#audit-alerts"
+    }
+  },
+
+  "plugins": {
+    "custom_checks": [
+      "plugins/license_check.py",
+      "plugins/dependency_audit.py"
+    ]
+  },
+
+  "retry_policy": {
+    "max_attempts": 3,
+    "delay_seconds": 2,
+    "backoff_factor": 1.5
+  },
+
+  "environment_specific": {
+    "development": {
+      "fail_threshold": 80.0,
+      "strict_mode": false
+    },
+    "production": {
+      "fail_threshold": 95.0,
+      "max_workers": 8
+    }
+  }
+}

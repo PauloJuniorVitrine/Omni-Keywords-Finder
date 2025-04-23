@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-4">
+  <h2 class="mb-4">✏️ Editar Template</h2>
+
+  <form action="/admin/templates/{{ template.id }}/editar" method="post">
+    <div class="mb-3">
+      <label for="nome" class="form-label">Nome do Template</label>
+      <input type="text" class="form-control" id="nome" name="nome" value="{{ template.nome }}" required>
+    </div>
+
+    <div class="mb-3">
+      <label for="nicho" class="form-label">Nicho</label>
+      <input type="text" class="form-control" id="nicho" name="nicho" value="{{ template.nicho }}" required>
+    </div>
+
+    <div class="mb-3">
+      <label for="categoria" class="form-label">Categoria (Dia da Semana)</label>
+      <select class="form-select" id="categoria" name="categoria" required>
+        {% for cat in categorias %}
+          <option value="{{ cat.name }}" {% if template.categoria.name == cat.name %}selected{% endif %}>{{ cat.value }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="mb-3">
+      <label for="tipo_template" class="form-label">Tipo de Template</label>
+      <input list="tipos" class="form-control" id="tipo_template" name="tipo_template" value="{{ template.tipo_template }}">
+      <datalist id="tipos">
+        <option value="post">
+        <option value="email">
+        <option value="video">
+        <option value="artigo">
+        <option value="reel">
+      </datalist>
+    </div>
+
+    <div class="mb-3">
+      <label for="descricao" class="form-label">Descrição</label>
+      <input type="text" class="form-control" id="descricao" name="descricao" maxlength="500" value="{{ template.descricao }}">
+      <div class="form-text">Máximo de 500 caracteres</div>
+    </div>
+
+    <div class="mb-3">
+      <label for="modelo_texto" class="form-label">Modelo de Texto</label>
+      <textarea class="form-control" id="modelo_texto" name="modelo_texto" rows="10" required minlength="10" maxlength="10000">{{ template.modelo_texto }}</textarea>
+      <div class="form-text">Use <code>{{palavra_chave}}</code> para indicar onde a palavra-chave será inserida.</div>
+      <div class="form-text text-muted"><span id="charCount">{{ template.modelo_texto|length }}</span>/10000 caracteres</div>
+    </div>
+
+    <div class="form-check form-switch mb-3">
+      <input class="form-check-input" type="checkbox" role="switch" id="ativo" name="ativo" {% if template.ativo %}checked{% endif %}>
+      <label class="form-check-label" for="ativo" data-bs-toggle="tooltip" title="Se desativado, o prompt não será utilizado no sistema.">Template Ativo</label>
+    </div>
+
+    <div class="d-flex justify-content-between">
+      <a href="/admin/templates" class="btn btn-secondary">⬅ Voltar</a>
+      <button type="submit" class="btn btn-primary">💾 Salvar Alterações</button>
+    </div>
+  </form>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const modelo = document.getElementById("modelo_texto");
+  const count = document.getElementById("charCount");
+  modelo.addEventListener("input", () => {
+    count.textContent = modelo.value.length;
+  });
+
+  const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
+  [...tooltipTriggerList].forEach(el => new bootstrap.Tooltip(el));
+</script>
+{% endblock %}

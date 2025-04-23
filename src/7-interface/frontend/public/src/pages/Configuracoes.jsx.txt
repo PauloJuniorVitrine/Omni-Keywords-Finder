@@ -1,0 +1,84 @@
+import React, { useState, useEffect } from "react";
+import { useCookies } from "react-cookie";
+import { ToastContainer, toast } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
+
+const Configuracoes = () => {
+    const [cookies, setCookie] = useCookies(["apiUrl", "temaEscuro", "temaVisual"]);
+    const [apiUrl, setApiUrl] = useState(cookies.apiUrl || process.env.API_URL || "https://default-api.com");
+    const [temaEscuro, setTemaEscuro] = useState(cookies.temaEscuro === "true");
+    const [temaVisual, setTemaVisual] = useState(cookies.temaVisual || "claro");
+    const [loading, setLoading] = useState(false);
+    const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+    useEffect(() => {
+        document.body.classList.toggle("dark-mode", temaEscuro);
+        document.body.classList.toggle("alto-contraste", temaVisual === "contraste");
+    }, [temaEscuro, temaVisual]);
+
+    useEffect(() => {
+        const handleOnlineStatus = () => setIsOnline(navigator.onLine);
+        window.addEventListener("online", handleOnlineStatus);
+        window.addEventListener("offline", handleOnlineStatus);
+        return () => {
+            window.removeEventListener("online", handleOnlineStatus);
+            window.removeEventListener("offline", handleOnlineStatus);
+        };
+    }, []);
+
+    const validateUrl = (url) => {
+        try {
+            new URL(url);
+            return true;
+        } catch (error) {
+            return false;
+        }
+    };
+
+    useEffect(() => {
+        if (validateUrl(apiUrl)) {
+            setCookie("apiUrl", apiUrl, { path: "/", secure: true, sameSite: "Strict" });
+        }
+    }, [apiUrl]);
+
+    useEffect(() => {
+        setCookie("temaEscuro", temaEscuro.toString(), { path: "/", secure: true, sameSite: "Strict" });
+        setCookie("temaVisual", temaVisual, { path: "/", secure: true, sameSite: "Strict" });
+    }, [temaEscuro, temaVisual]);
+
+    return (
+        <div className="configuracoes-container">
+            <h2>Configurações</h2>
+            <label>URL da API:</label>
+            <input 
+                type="text" 
+                value={apiUrl} 
+                onChange={(e) => setApiUrl(e.target.value)} 
+                placeholder="https://sua-api.com"
+                className={validateUrl(apiUrl) ? "valid" : "invalid"} 
+            />
+            <label>
+                <input 
+                    type="checkbox" 
+                    checked={temaEscuro} 
+                    onChange={() => setTemaEscuro(!temaEscuro)}
+                />
+                Ativar Tema Escuro
+            </label>
+            <label>
+                Tema Visual:
+                <select value={temaVisual} onChange={(e) => setTemaVisual(e.target.value)}>
+                    <option value="claro">Claro</option>
+                    <option value="escuro">Escuro</option>
+                    <option value="contraste">Alto Contraste</option>
+                </select>
+            </label>
+            <button disabled={!isOnline || loading}>
+                {isOnline ? (loading ? "Salvando..." : "Configurações Salvas Automaticamente") : "Offline - Mudanças serão sincronizadas"}
+            </button>
+            <ToastContainer position="bottom-right" autoClose={3000} />
+        </div>
+    );
+};
+
+export default Configuracoes;

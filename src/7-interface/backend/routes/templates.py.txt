@@ -1,0 +1,130 @@
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
+from database import SessionLocal
+from models import TemplateEmail, TemplateVersao
+from auth import get_current_user
+import redis
+import logging
+import json
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+import pytest
+
+# 🔍 Configuração de cache com Redis
+CACHE_ENABLED = True  # Alterar para False se não quiser usar cache
+redis_client = redis.Redis(host="localhost", port=6379, db=0) if CACHE_ENABLED else None
+
+# 📢 Configuração de Logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
+
+# 🚀 Configuração de Rate Limiting
+limiter = Limiter(key_func=get_remote_address)
+
+router = APIRouter(prefix="/templates", tags=["Templates"])
+
+# Dependência do banco de dados
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# 🔍 Cache Helper
+def get_cached_templates():
+    if CACHE_ENABLED and redis_client.exists("templates_cache"):
+        return redis_client.get("templates_cache")
+    return None
+
+def set_cached_templates(data):
+    if CACHE_ENABLED:
+        redis_client.setex("templates_cache", 300, json.dumps(data))  # Expira em 5 min
+
+# 📌 Listar Templates com Busca e Cache
+@router.get("/")
+@limiter.limit("10/minute")
+def listar_templates(
+    skip: int = 0, 
+    limit: int = 10, 
+    categoria: str = Query(None, description="Filtrar por categoria"),
+    busca: str = Query(None, description="Buscar por palavra-chave no título ou conteúdo"),
+    ordenar_por: str = Query("criado_em", description="Campo para ordenação (criado_em, titulo)"),
+    db: Session = Depends(get_db)):
+    
+    cached_templates = get_cached_templates()
+    if cached_templates:
+        return json.loads(cached_templates)  # Retorna do cache
+    
+    query = db.query(TemplateEmail).filter(TemplateEmail.ativo == True)
+    
+    if categoria:
+        query = query.filter(TemplateEmail.categoria == categoria)
+    if busca:
+        query = query.filter((TemplateEmail.titulo.contains(busca)) | (TemplateEmail.conteudo.contains(busca)))
+    
+    templates = query.order_by(getattr(TemplateEmail, ordenar_por).desc()).offset(skip).limit(limit).all()
+    set_cached_templates([template.__dict__ for template in templates])
+    return templates
+
+# 📌 Criar Template (Protegido por JWT e Versionamento)
+@router.post("/", status_code=status.HTTP_201_CREATED)
+@limiter.limit("5/minute")
+def criar_template(titulo: str, conteudo: str, categoria: str, db: Session = Depends(get_db), usuario=Depends(get_current_user)):
+    if db.query(TemplateEmail).filter(TemplateEmail.titulo == titulo).first():
+        raise HTTPException(status_code=400, detail="Template já existe")
+    
+    novo_template = TemplateEmail(titulo=titulo, conteudo=conteudo, categoria=categoria, modificado_por=usuario["username"])
+    db.add(novo_template)
+    db.commit()
+    db.refresh(novo_template)
+    redis_client.delete("templates_cache")  # Limpa cache
+    logging.info(f"🆕 Template criado: {titulo} por {usuario['username']}")
+    return novo_template
+
+# 📌 Atualizar Template (Com Versionamento)
+@router.put("/{template_id}")
+@limiter.limit("5/minute")
+def atualizar_template(template_id: int, titulo: str, conteudo: str, categoria: str, db: Session = Depends(get_db), usuario=Depends(get_current_user)):
+    template = db.query(TemplateEmail).filter(TemplateEmail.id == template_id, TemplateEmail.ativo == True).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="Template não encontrado")
+    
+    # Criar versão antiga antes de modificar
+    versao_antiga = TemplateVersao(template_id=template.id, titulo=template.titulo, conteudo=template.conteudo)
+    db.add(versao_antiga)
+    
+    template.titulo = titulo
+    template.conteudo = conteudo
+    template.categoria = categoria
+    template.modificado_por = usuario["username"]
+    db.commit()
+    db.refresh(template)
+    redis_client.delete("templates_cache")
+    logging.info(f"✏️ Template atualizado: {titulo} por {usuario['username']}")
+    return template
+
+# 📌 Exportar Templates para JSON
+@router.get("/export")
+def exportar_templates(db: Session = Depends(get_db)):
+    templates = db.query(TemplateEmail).filter(TemplateEmail.ativo == True).all()
+    templates_json = [{"id": t.id, "titulo": t.titulo, "conteudo": t.conteudo, "categoria": t.categoria} for t in templates]
+    return JSONResponse(content=templates_json)
+
+# 📌 Deletar Template (Soft Delete)
+@router.delete("/{template_id}")
+@limiter.limit("5/minute")
+def deletar_template(template_id: int, db: Session = Depends(get_db), usuario=Depends(get_current_user)):
+    template = db.query(TemplateEmail).filter(TemplateEmail.id == template_id, TemplateEmail.ativo == True).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="Template não encontrado")
+    
+    template.ativo = False
+    template.modificado_por = usuario["username"]
+    db.commit()
+    redis_client.delete("templates_cache")
+    logging.warning(f"🗑️ Template desativado: {template.titulo} por {usuario['username']}")
+    return {"message": "Template desativado"}

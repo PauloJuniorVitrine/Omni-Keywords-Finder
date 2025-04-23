@@ -1,0 +1,117 @@
+import sqlite3
+import redis
+import random
+import logging
+import contextlib
+import json
+import numpy as np
+import asyncio
+from collections import Counter
+from functools import lru_cache
+from fastapi import FastAPI
+from concurrent.futures import ThreadPoolExecutor
+
+# 🔹 Configuração do Log
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+# 🔹 Banco de Dados e Cache
+db_path = "word_distribution.db"
+redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+executor = ThreadPoolExecutor(max_workers=5)
+
+# 🔹 Criar API para monitoramento da distribuição
+app = FastAPI()
+
+# 🔹 Criar tabela no SQLite
+def setup_database():
+    with sqlite3.connect(db_path) as conn:
+        with contextlib.closing(conn.cursor()) as cursor:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS word_usage (
+                    word TEXT PRIMARY KEY,
+                    count INTEGER DEFAULT 0,
+                    last_used TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            conn.commit()
+
+# 🔹 Registrar Palavra no Banco de Dados
+async def register_word(word):
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(executor, _register_word_sync, word)
+    redis_client.delete("word_distribution_cache")  # Limpa o cache para forçar atualização
+
+def _register_word_sync(word):
+    with sqlite3.connect(db_path) as conn:
+        with contextlib.closing(conn.cursor()) as cursor:
+            cursor.execute("INSERT INTO word_usage (word, count) VALUES (?, 1) ON CONFLICT(word) DO UPDATE SET count = count + 1, last_used = CURRENT_TIMESTAMP", (word,))
+            conn.commit()
+
+# 🔹 Selecionar Palavras Menos Usadas com Cache
+@lru_cache(maxsize=128)
+def get_least_used_words(limit=10):
+    cached_data = redis_client.get("word_distribution_cache")
+    if cached_data:
+        return json.loads(cached_data)
+    
+    with sqlite3.connect(db_path) as conn:
+        with contextlib.closing(conn.cursor()) as cursor:
+            cursor.execute("SELECT word FROM word_usage ORDER BY count ASC, last_used ASC LIMIT ?", (limit,))
+            words = [row[0] for row in cursor.fetchall()]
+    redis_client.setex("word_distribution_cache", 300, json.dumps(words))  # Cache válido por 5 minutos
+    return words
+
+# 🔹 Limpar Palavras Antigas (Evita Excesso de Dados)
+def clean_old_words(threshold=100):
+    with sqlite3.connect(db_path) as conn:
+        with contextlib.closing(conn.cursor()) as cursor:
+            cursor.execute("DELETE FROM word_usage WHERE count >= ?", (threshold,))
+            conn.commit()
+
+# 🔹 Selecionar Palavra Priorizando as Menos Usadas com Distribuição Exponencial
+async def select_word(word_list):
+    if not word_list:
+        logging.warning("Lista de palavras vazia.")
+        return None
+    
+    counter = Counter(word_list)
+    word_weights = np.array([np.exp(-counter[word]) for word in word_list])
+    word_weights /= word_weights.sum()  # Normaliza pesos para soma = 1
+    
+    selected_word = np.random.choice(word_list, p=word_weights)
+    await register_word(selected_word)
+    return selected_word
+
+# 🔹 API de Monitoramento
+@app.get("/stats")
+async def get_stats():
+    words = get_least_used_words()
+    return {
+        "menor_usadas": words,
+        "mais_usadas": await get_most_used_words(),
+    }
+
+async def get_most_used_words(limit=10):
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(executor, _get_most_used_words_sync, limit)
+
+def _get_most_used_words_sync(limit):
+    with sqlite3.connect(db_path) as conn:
+        with contextlib.closing(conn.cursor()) as cursor:
+            cursor.execute("SELECT word FROM word_usage ORDER BY count DESC LIMIT ?", (limit,))
+            return [row[0] for row in cursor.fetchall()]
+
+# 🔹 Testando a Distribuição
+async def test_distribution():
+    setup_database()
+    words = ["estratégia", "criatividade", "tecnologia", "automação", "otimização", "eficiência", "inovação", "tendência"]
+    
+    for _ in range(100):
+        selected = await select_word(words)
+        logging.info(f"Palavra Selecionada: {selected}")
+    
+    logging.info("Menos usadas atualmente:", get_least_used_words())
+    clean_old_words()
+
+if __name__ == "__main__":
+    asyncio.run(test_distribution())

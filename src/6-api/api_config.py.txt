@@ -1,0 +1,194 @@
+# api_config.py (Enterprise Absoluto com auditoria, CI/CD, Prometheus, SSM e segurança avançada)
+
+import os
+import json
+import redis
+import logging
+import threading
+from time import time
+from uuid import uuid4
+from dotenv import load_dotenv
+from pydantic import BaseModel, ValidationError
+from cryptography.fernet import Fernet
+from prometheus_client import Counter, Gauge
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+
+# -----------------------------
+# Logging
+# -----------------------------
+logger = logging.getLogger("API_CONFIG")
+logging.basicConfig(level=logging.INFO)
+
+# -----------------------------
+# Prometheus Métricas
+# -----------------------------
+CACHE_HITS = Counter("api_config_cache_hits", "Número de hits no cache")
+CACHE_MISSES = Counter("api_config_cache_misses", "Número de falhas de cache")
+CONFIG_ERRORS = Counter("api_config_validation_errors", "Falhas na validação da config")
+CONFIG_TIMESTAMP = Gauge("api_config_last_loaded", "Último load da config em epoch")
+
+# -----------------------------
+# Webhook de Alerta
+# -----------------------------
+WEBHOOK_ALERTA = os.getenv("WEBHOOK_ALERTA")
+
+def notificar_erro_config(trace_id, erro):
+    if WEBHOOK_ALERTA:
+        try:
+            import requests
+            payload = {"trace_id": trace_id, "erro": erro, "contexto": "api_config"}
+            requests.post(WEBHOOK_ALERTA, json=payload, timeout=5)
+        except Exception as e:
+            logger.warning(f"[{trace_id}] Falha ao notificar webhook: {e}")
+
+# -----------------------------
+# Estrutura de Configuração
+# -----------------------------
+class ConfigSchema(BaseModel):
+    REDIS_HOST: str
+    REDIS_PORT: int
+    SECRET_KEY: str
+    ENVIAR_RESULTADOS: bool
+    CONFIG_VERSION: str
+
+# -----------------------------
+# Verificação de validade da chave
+# -----------------------------
+def verificar_expiracao_chave(chave: str) -> bool:
+    try:
+        Fernet(chave)
+        return False
+    except:
+        return True
+
+# -----------------------------
+# Load Inicial com Fallback e Auditoria
+# -----------------------------
+def carregar_config(trace_id=None):
+    trace_id = trace_id or f"TRACE-{uuid4()}"
+    try:
+        load_dotenv()
+        dados = {
+            "REDIS_HOST": os.getenv("REDIS_HOST", "localhost"),
+            "REDIS_PORT": int(os.getenv("REDIS_PORT", 6379)),
+            "SECRET_KEY": os.getenv("SECRET_KEY", Fernet.generate_key().decode()),
+            "ENVIAR_RESULTADOS": os.getenv("ENVIAR_RESULTADOS", "true").lower() == "true",
+            "CONFIG_VERSION": os.getenv("CONFIG_VERSION", "1.0")
+        }
+        config = ConfigSchema(**dados)
+
+        if verificar_expiracao_chave(config.SECRET_KEY):
+            raise ValueError("SECRET_KEY inválida ou expirada")
+
+        logger.info(f"[{trace_id}] Config carregada com sucesso (versão {config.CONFIG_VERSION})")
+        redis_cache.set("config:versao", config.CONFIG_VERSION)
+        redis_cache.set(f"config:hist:{int(time())}", config.json())
+        CONFIG_TIMESTAMP.set(time())
+        return config
+    except ValidationError as e:
+        logger.error(f"[{trace_id}] Erro na validação da configuração: {e}")
+        CONFIG_ERRORS.inc()
+        notificar_erro_config(trace_id, str(e))
+        raise
+    except Exception as e:
+        logger.error(f"[{trace_id}] Erro geral ao carregar config: {e}")
+        CONFIG_ERRORS.inc()
+        notificar_erro_config(trace_id, str(e))
+        raise
+
+# -----------------------------
+# Cache com Retry Automático
+# -----------------------------
+class RedisCache:
+    def __init__(self, host, port):
+        self.host = host
+        self.port = port
+        self.client = self._connect()
+
+    def _connect(self):
+        try:
+            client = redis.Redis(host=self.host, port=self.port, decode_responses=True)
+            client.ping()
+            return client
+        except Exception as e:
+            logger.warning(f"Redis indisponível: {e}")
+            return None
+
+    def get(self, chave):
+        if not self.client:
+            CACHE_MISSES.inc()
+            return None
+        try:
+            valor = self.client.get(chave)
+            if valor:
+                CACHE_HITS.inc()
+            else:
+                CACHE_MISSES.inc()
+            return valor
+        except Exception as e:
+            logger.error(f"Erro ao acessar Redis: {e}")
+            CACHE_MISSES.inc()
+            return None
+
+    def setex(self, chave, tempo, valor):
+        if not self.client:
+            return
+        try:
+            self.client.setex(chave, tempo, valor)
+        except Exception as e:
+            logger.warning(f"Erro ao salvar no Redis: {e}")
+
+    def set(self, chave, valor):
+        if not self.client:
+            return
+        try:
+            self.client.set(chave, valor)
+        except Exception as e:
+            logger.warning(f"Erro ao gravar no Redis: {e}")
+
+# -----------------------------
+# Watchdog para .env
+# -----------------------------
+class ConfigWatcher(FileSystemEventHandler):
+    def on_modified(self, event):
+        if event.src_path.endswith(".env"):
+            trace = f"TRACE-{uuid4()}"
+            logger.info(f"[{trace}] Alteração detectada no .env, recarregando configuração...")
+            try:
+                carregar_config(trace)
+            except Exception as e:
+                logger.error(f"[{trace}] Erro ao recarregar configuração: {e}")
+
+# -----------------------------
+# Inicialização e Agendamento
+# -----------------------------
+config = carregar_config()
+redis_cache = RedisCache(config.REDIS_HOST, config.REDIS_PORT)
+
+# Entrypoint para CI/CD
+if __name__ == '__main__':
+    try:
+        carregar_config()
+        print("✅ Configuração válida")
+    except Exception as e:
+        print(f"❌ Configuração inválida: {e}")
+        exit(1)
+
+def iniciar_watchdog():
+    observer = Observer()
+    observer.schedule(ConfigWatcher(), path=".", recursive=False)
+    observer.start()
+
+    def checagem():
+        try:
+            redis_cache.set("config:last_check", time())
+        except:
+            pass
+        threading.Timer(120, checagem).start()
+
+    checagem()
+
+iniciar_watchdog()
+SECRET_KEY = config.SECRET_KEY
+ENVIAR_RESULTADOS = config.ENVIAR_RESULTADOS

@@ -1,0 +1,28 @@
+📌 Como Rodar a API
+1️⃣ Instale os pacotes necessários
+
+bash
+Copiar
+Editar
+pip install flask flask-cors flask-jwt-extended flask-limiter
+2️⃣ Execute a API
+
+bash
+Copiar
+Editar
+python api_integration.py
+3️⃣ Autenticação e uso da API
+
+✔ Obter Token de Acesso JWT:
+
+bash
+Copiar
+Editar
+curl -X POST http://127.0.0.1:5000/login -H "Content-Type: application/json" -d '{"username": "admin", "password": "senha123"}'
+✔ Usar o Token para acessar os endpoints protegidos:
+
+bash
+Copiar
+Editar
+curl -X GET http://127.0.0.1:5000/status -H "Authorization: Bearer SEU_TOKEN_AQUI"
+📌 O que fazer agora?

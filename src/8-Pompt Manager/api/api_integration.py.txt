@@ -1,0 +1,127 @@
+import os
+import json
+import logging
+import sqlite3
+import requests
+import redis
+import asyncio
+import websockets
+from fastapi import FastAPI, HTTPException, Depends, WebSocket
+from fastapi_limiter import FastAPILimiter
+from fastapi_limiter.depends import RateLimiter
+from jose import jwt
+from dotenv import load_dotenv
+from datetime import datetime, timedelta
+from functools import lru_cache
+from pydantic import BaseModel
+
+# 🔹 Carregar variáveis de ambiente
+load_dotenv()
+
+# 🔹 Configuração de Logs Estruturados
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.FileHandler("api.log"), logging.StreamHandler()]
+)
+
+# 🔹 Configuração do FastAPI
+app = FastAPI()
+
+# 🔹 Configuração do Redis para Cache
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
+redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=4, decode_responses=True)
+
+# 🔹 Configuração do Banco de Dados
+DATABASE_PATH = "database/system_data.db"
+
+def get_db_connection():
+    """Cria uma conexão persistente com o banco SQLite."""
+    conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+# 🔹 Autenticação via JWT
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", "supersecretkey")
+
+def generate_token(user_id):
+    """Gera um token JWT válido por 24 horas."""
+    payload = {
+        "sub": user_id,
+        "exp": datetime.utcnow() + timedelta(days=1)
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
+
+def verify_token(token: str):
+    """Verifica e decodifica um token JWT."""
+    try:
+        decoded_token = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        return decoded_token["sub"]
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expirado")
+    except jwt.JWTError:
+        raise HTTPException(status_code=401, detail="Token inválido")
+
+@app.get("/health", dependencies=[Depends(RateLimiter(times=5, seconds=60))])
+def health_check():
+    """Endpoint de Health Check"""
+    return {"status": "OK", "timestamp": datetime.utcnow().isoformat()}
+
+class PromptRequest(BaseModel):
+    prompt: str
+
+@app.post("/generate_prompt", dependencies=[Depends(RateLimiter(times=5, seconds=60))])
+def generate_prompt(request: PromptRequest):
+    """Gera um prompt de IA usando DeepSeek e Gemini."""
+    prompt = request.prompt
+    if not prompt:
+        raise HTTPException(status_code=400, detail="Prompt não pode estar vazio")
+    try:
+        response_deepseek = requests.post("https://api.deepseek.com/generate", json={"text": prompt})
+        response_gemini = requests.post("https://api.gemini.com/generate", json={"text": prompt})
+        
+        if response_deepseek.status_code == 200:
+            return response_deepseek.json()
+        elif response_gemini.status_code == 200:
+            return response_gemini.json()
+        else:
+            raise HTTPException(status_code=502, detail="Falha ao gerar prompt")
+    except requests.exceptions.RequestException as e:
+        logging.error(f"❌ Erro de conexão com API externa: {e}")
+        raise HTTPException(status_code=503, detail="Serviço indisponível")
+
+@app.get("/word_stats", dependencies=[Depends(RateLimiter(times=10, seconds=60))])
+@lru_cache(maxsize=128)
+def word_stats():
+    """Obtém estatísticas de palavras armazenadas no banco de dados."""
+    cached_stats = redis_client.get("word_stats")
+    if cached_stats:
+        return json.loads(cached_stats)
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT palavra, contagem FROM word_distribution ORDER BY contagem DESC LIMIT 10")
+        result = cursor.fetchall()
+        conn.close()
+        stats = [{"palavra": row["palavra"], "contagem": row["contagem"]} for row in result]
+        redis_client.setex("word_stats", 300, json.dumps(stats))  # Cache por 5 minutos
+        return stats
+    except sqlite3.Error as e:
+        logging.error(f"❌ Erro no banco de dados: {e}")
+        raise HTTPException(status_code=500, detail="Erro ao buscar estatísticas")
+
+# 🔹 WebSocket para Atualizações em Tempo Real
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    while True:
+        stats = redis_client.get("word_stats")
+        if stats:
+            await websocket.send_text(stats)
+        await asyncio.sleep(5)
+
+if __name__ == "__main__":
+    logging.info("🚀 API FastAPI iniciada com sucesso!")
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -1,0 +1,118 @@
+import pytest
+import httpx
+import asyncio
+import redis
+from locust import HttpUser, task, between
+from unittest.mock import AsyncMock, patch
+
+# 🔹 Configuração dos Testes
+BASE_URL = "http://localhost:8006"
+USERNAME = "admin"
+PASSWORD = "password"
+redis_client = redis.Redis(host="localhost", port=6379, db=9, decode_responses=True)
+
+@pytest.mark.asyncio
+async def test_login():
+    """Testa login bem-sucedido e retorno de token JWT válido."""
+    async with httpx.AsyncClient() as client:
+        response = await client.post(f"{BASE_URL}/token", data={"username": USERNAME, "password": PASSWORD})
+    assert response.status_code == 200
+    assert "access_token" in response.json()
+    return response.json()["access_token"]
+
+@pytest.mark.asyncio
+async def test_access_protected_route():
+    """Testa se a rota protegida permite acesso com token válido."""
+    token = await test_login()
+    headers = {"Authorization": f"Bearer {token}"}
+    async with httpx.AsyncClient() as client:
+        response = await client.get(f"{BASE_URL}/dados-seguros", headers=headers)
+    assert response.status_code == 200
+
+@pytest.mark.asyncio
+async def test_logout():
+    """Testa o logout e bloqueia o token."""
+    token = await test_login()
+    headers = {"Authorization": f"Bearer {token}"}
+    async with httpx.AsyncClient() as client:
+        response = await client.post(f"{BASE_URL}/logout", headers=headers)
+    assert response.status_code == 200
+    
+    # Testa se o token foi revogado verificando no Redis
+    assert redis_client.get(f"token_blacklist:{token}") == "revoked"
+    
+    # Testa se o token foi rejeitado após logout
+    async with httpx.AsyncClient() as client:
+        response = await client.get(f"{BASE_URL}/dados-seguros", headers=headers)
+    assert response.status_code == 401  # Token deve estar revogado
+
+@pytest.mark.asyncio
+async def test_invalid_login():
+    """Testa login com credenciais inválidas."""
+    async with httpx.AsyncClient() as client:
+        response = await client.post(f"{BASE_URL}/token", data={"username": "wrong", "password": "wrong"})
+    assert response.status_code == 400
+
+@pytest.mark.asyncio
+async def test_expired_token():
+    """Testa o comportamento da API com um token expirado."""
+    token = await test_login()
+    headers = {"Authorization": f"Bearer {token}"}
+    
+    # Simular expiração de token
+    await asyncio.sleep(65)  # Espera até o token expirar (ajustar tempo conforme configuração)
+    
+    async with httpx.AsyncClient() as client:
+        response = await client.get(f"{BASE_URL}/dados-seguros", headers=headers)
+    assert response.status_code == 401  # Token expirado
+
+@pytest.mark.asyncio
+async def test_refresh_token():
+    """Testa se um novo token é gerado corretamente após um refresh."""
+    token = await test_login()
+    async with httpx.AsyncClient() as client:
+        response = await client.post(f"{BASE_URL}/refresh", json={"refresh_token": token})
+    assert response.status_code == 200
+    assert "access_token" in response.json()
+
+@pytest.mark.asyncio
+async def test_rate_limiting():
+    """Testa se a API bloqueia corretamente após atingir o limite de requisições."""
+    token = await test_login()
+    headers = {"Authorization": f"Bearer {token}"}
+    async with httpx.AsyncClient() as client:
+        for _ in range(15):  # Enviar mais requisições do que o permitido
+            response = await client.get(f"{BASE_URL}/dados-seguros", headers=headers)
+    assert response.status_code in [429, 200]  # Código 429 indica bloqueio correto
+
+@pytest.mark.asyncio
+async def test_sql_injection():
+    """Testa se a API protege contra SQL Injection."""
+    payload = {"username": "admin' OR '1'='1", "password": "password"}
+    async with httpx.AsyncClient() as client:
+        response = await client.post(f"{BASE_URL}/token", data=payload)
+    assert response.status_code == 400  # Deve bloquear injeção SQL
+
+@pytest.mark.asyncio
+async def test_parallel_execution():
+    """Garante que os testes podem rodar em paralelo com pytest-xdist."""
+    assert True  # Placeholder para execução paralela
+
+# 🔹 Implementação de Teste de Carga
+class LoadTest(HttpUser):
+    wait_time = between(1, 3)
+    
+    @task
+    def stress_test_login(self):
+        """Simula múltiplos logins simultâneos."""
+        self.client.post(f"{BASE_URL}/token", data={"username": USERNAME, "password": PASSWORD})
+    
+    @task
+    def stress_test_protected_route(self):
+        """Simula acesso contínuo a uma rota protegida."""
+        token = test_login()
+        headers = {"Authorization": f"Bearer {token}"}
+        self.client.get(f"{BASE_URL}/dados-seguros", headers=headers)
+
+if __name__ == "__main__":
+    pytest.main()

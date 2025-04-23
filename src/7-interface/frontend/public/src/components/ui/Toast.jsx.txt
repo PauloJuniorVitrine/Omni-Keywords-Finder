@@ -1,0 +1,49 @@
+// /src/components/ui/Toast.jsx
+import { useEffect } from "react";
+import { X } from "lucide-react";
+import clsx from "clsx";
+
+const variants = {
+  success: "bg-green-100 text-green-800 border-green-300",
+  error: "bg-red-100 text-red-800 border-red-300",
+  info: "bg-blue-100 text-blue-800 border-blue-300",
+  warning: "bg-yellow-100 text-yellow-800 border-yellow-300",
+};
+
+const Toast = ({
+  message,
+  type = "info",
+  onClose,
+  duration = 3000,
+  className = ""
+}) => {
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      onClose?.();
+    }, duration);
+    return () => clearTimeout(timeout);
+  }, [duration, onClose]);
+
+  return (
+    <div
+      role="alert"
+      aria-live="assertive"
+      className={clsx(
+        "fixed bottom-4 right-4 z-50 w-auto max-w-sm px-4 py-3 rounded-md border shadow-lg flex items-start gap-3 animate-fade-in",
+        variants[type],
+        className
+      )}
+    >
+      <div className="flex-1 text-sm font-medium">{message}</div>
+      <button
+        onClick={onClose}
+        className="text-inherit opacity-60 hover:opacity-100 transition"
+        aria-label="Fechar notificação"
+      >
+        <X size={16} />
+      </button>
+    </div>
+  );
+};
+
+export default Toast;

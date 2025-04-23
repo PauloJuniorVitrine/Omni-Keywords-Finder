@@ -1,0 +1,139 @@
+import aioredis
+import jwt
+import logging
+import asyncio
+import os
+import pyotp
+import prometheus_client
+from datetime import datetime, timedelta
+from fastapi import APIRouter, HTTPException, Depends
+from fastapi.security import OAuth2PasswordBearer
+from jose import JWTError
+from prometheus_client import Counter
+
+# 🔹 Configuração do Redis Assíncrono
+REDIS_HOST = "localhost"
+REDIS_PORT = 6379
+redis = None
+
+# 🔹 Configuração de Chaves JWT e Segurança
+PRIVATE_KEY_PATH = "private_key.pem"
+PUBLIC_KEY_PATH = "public_key.pem"
+ALGORITHM = os.getenv("JWT_ALGORITHM", "RS256")  # Algoritmo configurável
+ACCESS_TOKEN_EXPIRE_MINUTES = 60
+REFRESH_TOKEN_EXPIRE_DAYS = 7
+MAX_SESSION_DURATION_HOURS = 12  # Tempo máximo de uma sessão antes do logout forçado
+
+# 🔹 Inicialização do Monitoramento
+TOKEN_CREATED = Counter("tokens_created", "Número de tokens gerados")
+TOKEN_REVOKED = Counter("tokens_revoked", "Número de tokens revogados")
+TOKEN_REFRESHED = Counter("tokens_refreshed", "Número de tokens renovados")
+
+router = APIRouter()
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/token")
+
+async def get_redis():
+    global redis
+    if redis is None:
+        redis = await aioredis.from_url(f"redis://{REDIS_HOST}:{REDIS_PORT}", decode_responses=True)
+    return redis
+
+# 🔹 Inicializar Logger
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.FileHandler("token_manager.log"), logging.StreamHandler()]
+)
+
+async def load_keys():
+    """Carrega ou gera novas chaves JWT."""
+    if not os.path.exists(PRIVATE_KEY_PATH) or not os.path.exists(PUBLIC_KEY_PATH):
+        logging.info("🔑 Gerando novas chaves JWT...")
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.primitives import serialization
+
+        private_key = rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=2048
+        )
+        public_key = private_key.public_key()
+        with open(PRIVATE_KEY_PATH, "wb") as priv_file:
+            priv_file.write(private_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption()
+            ))
+        with open(PUBLIC_KEY_PATH, "wb") as pub_file:
+            pub_file.write(public_key.public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo
+            ))
+    
+    with open(PRIVATE_KEY_PATH, "rb") as priv_file:
+        private_key = priv_file.read()
+    with open(PUBLIC_KEY_PATH, "rb") as pub_file:
+        public_key = pub_file.read()
+    return private_key, public_key
+
+PRIVATE_KEY, PUBLIC_KEY = asyncio.run(load_keys())
+
+async def generate_token(user_id: str, is_refresh=False):
+    """Gera um token JWT assinado com chave privada."""
+    expire = datetime.utcnow() + (timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS) if is_refresh else timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    session_expire = datetime.utcnow() + timedelta(hours=MAX_SESSION_DURATION_HOURS)
+    payload = {"sub": user_id, "exp": expire, "is_refresh": is_refresh, "session_exp": session_expire}
+    token = jwt.encode(payload, PRIVATE_KEY, algorithm=ALGORITHM)
+    redis = await get_redis()
+    await redis.setex(f"token:{token}", ACCESS_TOKEN_EXPIRE_MINUTES * 60, "valid")
+    TOKEN_CREATED.inc()
+    return token
+
+async def verify_token(token: str):
+    """Verifica e decodifica um JWT usando chave pública."""
+    try:
+        redis = await get_redis()
+        if await redis.get(f"blacklist:{token}"):
+            TOKEN_REVOKED.inc()
+            raise HTTPException(status_code=401, detail="Token revogado")
+        decoded_token = jwt.decode(token, PUBLIC_KEY, algorithms=[ALGORITHM])
+        if datetime.utcnow() > datetime.utcfromtimestamp(decoded_token["session_exp"]):
+            raise HTTPException(status_code=401, detail="Sessão expirada")
+        return decoded_token["sub"]
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token inválido")
+
+@router.post("/refresh")
+async def refresh_token(token: str = Depends(oauth2_scheme)):
+    """Gera um novo access token a partir de um refresh token válido."""
+    decoded = await verify_token(token)
+    new_token = await generate_token(decoded)
+    TOKEN_REFRESHED.inc()
+    return {"access_token": new_token, "token_type": "bearer"}
+
+@router.post("/logout")
+async def logout(token: str = Depends(oauth2_scheme)):
+    """Revoga o token JWT no Redis."""
+    redis = await get_redis()
+    await redis.setex(f"blacklist:{token}", ACCESS_TOKEN_EXPIRE_MINUTES * 60, "revoked")
+    logging.info(f"🔒 Token revogado: {token}")
+    return {"message": "Logout realizado com sucesso."}
+
+@router.get("/validate")
+async def validate_token(token: str = Depends(oauth2_scheme)):
+    """Valida um token e retorna o usuário autenticado."""
+    user = await verify_token(token)
+    return {"user": user}
+
+@router.post("/mfa/generate")
+async def generate_mfa_secret():
+    """Gera um segredo para autenticação multifator."""
+    secret = pyotp.random_base32()
+    return {"mfa_secret": secret}
+
+@router.post("/mfa/verify")
+async def verify_mfa(secret: str, otp: str):
+    """Verifica um código OTP fornecido pelo usuário."""
+    totp = pyotp.TOTP(secret)
+    if totp.verify(otp):
+        return {"message": "MFA verificado com sucesso."}
+    raise HTTPException(status_code=400, detail="Código OTP inválido.")

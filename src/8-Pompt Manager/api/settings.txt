@@ -1,0 +1,112 @@
+import os
+import json
+import yaml
+import redis
+import logging
+import prometheus_client
+from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException, Depends
+from pydantic import BaseModel
+from datetime import datetime
+
+# 🔹 Carregar variáveis de ambiente do arquivo .env
+load_dotenv()
+
+# 🔹 Configuração do Redis para Cache de Configurações
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
+redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=5, decode_responses=True)
+
+# 🔹 Configuração de Logs Estruturados
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.FileHandler("config_manager.log"), logging.StreamHandler()]
+)
+
+class ConfigManager:
+    """Gerencia configurações do sistema, carregando de .env, YAML ou JSON."""
+    CONFIG_CACHE_KEY = "config_cache"
+    CONFIG_FILE_PATH = "settings.yaml"
+    BACKUP_FILE_PATH = "config_backup.json"
+    
+    @classmethod
+    def load_config(cls):
+        """Carrega configurações de diferentes fontes (YAML, JSON, .env)."""
+        if redis_client.exists(cls.CONFIG_CACHE_KEY):
+            logging.info("📦 Configuração carregada do Redis Cache.")
+            return json.loads(redis_client.get(cls.CONFIG_CACHE_KEY))
+        
+        config = {
+            "ENVIRONMENT": os.getenv("ENVIRONMENT", "development"),
+            "SECRET_KEY": os.getenv("SECRET_KEY", "supersecretkey"),
+            "DATABASE_URL": os.getenv("DATABASE_URL", "postgresql://user:password@localhost:5432/mydatabase"),
+            "REDIS_HOST": os.getenv("REDIS_HOST", "localhost"),
+            "REDIS_PORT": os.getenv("REDIS_PORT", "6379"),
+            "LOG_LEVEL": os.getenv("LOG_LEVEL", "INFO"),
+            "ALLOWED_ORIGINS": os.getenv("ALLOWED_ORIGINS", "*").split(","),
+            "FEATURE_FLAGS": {
+                "ENABLE_CACHE": True,
+                "ENABLE_LOGGING": True,
+                "ENABLE_BACKUP": True,
+            },
+        }
+        
+        if os.path.exists(cls.CONFIG_FILE_PATH):
+            with open(cls.CONFIG_FILE_PATH, "r") as file:
+                yaml_config = yaml.safe_load(file)
+                config.update(yaml_config)
+                logging.info("📄 Configuração carregada de settings.yaml")
+        
+        redis_client.setex(cls.CONFIG_CACHE_KEY, 3600, json.dumps(config))
+        cls.backup_config(config)
+        return config
+    
+    @classmethod
+    def update_config(cls, key, value):
+        """Atualiza uma configuração dinamicamente e salva no Redis."""
+        config = cls.load_config()
+        if key in config:
+            config[key] = value
+            redis_client.setex(cls.CONFIG_CACHE_KEY, 3600, json.dumps(config))
+            cls.backup_config(config)
+            logging.info(f"⚡ Configuração '{key}' atualizada para '{value}'.")
+            return {"message": f"Configuração '{key}' atualizada com sucesso!"}
+        return {"error": "Configuração não encontrada."}, 404
+    
+    @classmethod
+    def backup_config(cls, config):
+        """Cria um backup automático das configurações."""
+        if config.get("FEATURE_FLAGS", {}).get("ENABLE_BACKUP", False):
+            with open(cls.BACKUP_FILE_PATH, "w") as file:
+                json.dump(config, file, indent=4)
+            logging.info("💾 Backup automático das configurações salvo com sucesso!")
+    
+    @classmethod
+    def get_metrics(cls):
+        """Métricas Prometheus para monitoramento de configuração."""
+        return {
+            "config_loads": redis_client.get("config_loads") or 0,
+            "cache_hits": redis_client.get("cache_hits") or 0,
+        }
+
+# 🔹 Criar API para Atualização de Configurações
+token_auth = "admin_secret_token"
+app = FastAPI()
+
+class ConfigUpdate(BaseModel):
+    key: str
+    value: str
+
+@app.post("/config/update")
+def update_config_api(config_update: ConfigUpdate, token: str = Depends(lambda: "")):
+    """Endpoint REST para alterar configurações dinamicamente."""
+    if token != token_auth:
+        raise HTTPException(status_code=403, detail="Acesso não autorizado.")
+    return ConfigManager.update_config(config_update.key, config_update.value)
+
+# 🔹 Criar uma instância global das configurações
+settings = ConfigManager.load_config()
+
+if __name__ == "__main__":
+    print(settings)

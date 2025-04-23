@@ -1,0 +1,82 @@
+{
+  "debug": false,
+  "prompt_engine": {
+    "model": "gpt-4",
+    "temperature": 0.7,
+    "max_tokens": 2000,
+    "timeout": 30,
+    "retries": 3,
+    "fallback_model": "gpt-3.5-turbo",
+    "cache_enabled": true,
+    "cache_ttl_minutes": 1440,
+    "safety_filters": {
+      "prevent_code_execution": true,
+      "scan_for_secrets": true
+    }
+  },
+  "test_generation": {
+    "include_comments": true,
+    "include_assertions": true,
+    "default_framework": "pytest",
+    "template_path": "templates/default_test_template.jinja2",
+    "quality_gates": {
+      "min_coverage": 80,
+      "required_assertions": 3,
+      "style_checks": ["pep8", "pylint"]
+    },
+    "metadata_injection": {
+      "author": "AI Test Generator",
+      "generation_timestamp": true,
+      "source_module": true
+    }
+  },
+  "execution": {
+    "timeout": 60,
+    "memory_limit_mb": 1024,
+    "isolated_environment": true,
+    "cleanup_generated_tests": true,
+    "sandbox_mode": {
+      "enabled": true,
+      "network_access": false,
+      "filesystem_whitelist": ["/tmp"]
+    },
+    "retry_policy": {
+      "max_attempts": 2,
+      "delay_seconds": 5,
+      "retry_on": ["timeout", "memory_error"]
+    }
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "test_runner.log",
+    "max_size_mb": 10,
+    "backup_count": 3,
+    "sensitive_data_redaction": true,
+    "structured_format": true
+  },
+  "ci_settings": {
+    "github_actions": {
+      "artifact_reports": true,
+      "junit_output": "test-results.xml",
+      "annotate_failures": true
+    },
+    "gitlab": {
+      "junit_output": "unit-test-report.xml"
+    }
+  },
+  "notifications": {
+    "slack": {
+      "webhook_url": "",
+      "notify_on": ["failure", "timeout"]
+    },
+    "email": {
+      "smtp_server": "",
+      "recipients": []
+    }
+  },
+  "analytics": {
+    "usage_metrics": true,
+    "performance_metrics": true,
+    "anonymized_data_collection": true
+  }
+}

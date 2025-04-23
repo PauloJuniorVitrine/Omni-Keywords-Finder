@@ -1,0 +1,131 @@
+import sqlite3
+import os
+import logging
+from flask import Flask, request, jsonify
+import dotenv
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
+# Carregar variáveis de ambiente
+dotenv.load_dotenv()
+
+# Caminho do banco de dados
+DATABASE_PATH = "database/nichos_categorias.db"
+API_AUTH_TOKEN = os.getenv("API_AUTH_TOKEN")  # Autenticação da API
+
+# Inicializa a aplicação Flask
+app = Flask(__name__)
+limiter = Limiter(app, key_func=get_remote_address)  # Limita requisições por IP
+
+# Configuração do log
+logging.basicConfig(filename='api_nichos.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+def log_action(acao, detalhes):
+    """Registra logs das ações realizadas."""
+    logging.info(f"{acao} - {detalhes}")
+
+class NichosManager:
+    """Classe para gerenciar operações do banco de dados."""
+    def __init__(self):
+        self.create_database()
+
+    def create_database(self):
+        """Cria a tabela de nichos e categorias se não existir."""
+        with sqlite3.connect(DATABASE_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS nichos (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nome TEXT UNIQUE NOT NULL
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS categorias (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nome TEXT NOT NULL,
+                    dia_semana TEXT NOT NULL,
+                    nicho_id INTEGER,
+                    UNIQUE(nome, nicho_id),
+                    FOREIGN KEY(nicho_id) REFERENCES nichos(id)
+                )
+            ''')
+            conn.commit()
+
+    def execute_query(self, query, params=(), fetch=False):
+        """Executa uma consulta no banco de dados."""
+        with sqlite3.connect(DATABASE_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            conn.commit()
+            return cursor.fetchall() if fetch else None
+
+nichos_manager = NichosManager()
+
+def validate_auth():
+    """Valida o token de autenticação da API."""
+    token = request.headers.get("Authorization")
+    if API_AUTH_TOKEN and token != f"Bearer {API_AUTH_TOKEN}":
+        return jsonify({"erro": "Acesso não autorizado"}), 403
+    return None
+
+@app.route('/nichos', methods=['GET'])
+@limiter.limit("10 per minute")  # Limite de 10 requisições por minuto
+def listar_nichos():
+    """Lista todos os nichos cadastrados com paginação."""
+    auth_error = validate_auth()
+    if auth_error:
+        return auth_error
+    
+    limit = request.args.get("limit", 10, type=int)
+    offset = request.args.get("offset", 0, type=int)
+    
+    nichos = nichos_manager.execute_query("SELECT * FROM nichos LIMIT ? OFFSET ?", (limit, offset), fetch=True)
+    return jsonify([{"id": row[0], "nome": row[1]} for row in nichos])
+
+@app.route('/nichos', methods=['POST'])
+def adicionar_nicho():
+    """Adiciona um novo nicho."""
+    auth_error = validate_auth()
+    if auth_error:
+        return auth_error
+    
+    data = request.get_json()
+    nome = data.get("nome")
+    if not nome:
+        return jsonify({"erro": "Nome do nicho é obrigatório"}), 400
+    try:
+        nichos_manager.execute_query("INSERT INTO nichos (nome) VALUES (?)", (nome,))
+        log_action("NICHO_CRIADO", f"Nicho '{nome}' adicionado com sucesso.")
+        return jsonify({"mensagem": "Nicho criado com sucesso"}), 201
+    except sqlite3.IntegrityError:
+        return jsonify({"erro": "Este nicho já existe"}), 400
+
+@app.route('/nichos/<int:nicho_id>', methods=['PUT'])
+def editar_nicho(nicho_id):
+    """Edita um nicho existente."""
+    auth_error = validate_auth()
+    if auth_error:
+        return auth_error
+    
+    data = request.get_json()
+    nome = data.get("nome")
+    if not nome:
+        return jsonify({"erro": "Nome do nicho é obrigatório"}), 400
+    
+    nichos_manager.execute_query("UPDATE nichos SET nome = ? WHERE id = ?", (nome, nicho_id))
+    log_action("NICHO_EDITADO", f"Nicho ID {nicho_id} atualizado para '{nome}'.")
+    return jsonify({"mensagem": "Nicho atualizado com sucesso"})
+
+@app.route('/nichos/<int:nicho_id>', methods=['DELETE'])
+def deletar_nicho(nicho_id):
+    """Deleta um nicho."""
+    auth_error = validate_auth()
+    if auth_error:
+        return auth_error
+    
+    nichos_manager.execute_query("DELETE FROM nichos WHERE id = ?", (nicho_id,))
+    log_action("NICHO_DELETADO", f"Nicho ID {nicho_id} foi removido.")
+    return jsonify({"mensagem": "Nicho deletado com sucesso"})
+
+if __name__ == '__main__':
+    app.run(debug=True, host='0.0.0.0', port=5002)

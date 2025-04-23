@@ -1,0 +1,154 @@
+# ml_model.py
+
+import os
+import time
+import uuid
+import redis
+import logging
+import sqlite3
+from typing import Optional
+
+import joblib
+from fastapi import FastAPI, HTTPException, Depends, Request, Response
+from pydantic import BaseModel
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.pipeline import Pipeline
+from fastapi.security import OAuth2PasswordBearer
+from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+
+# Configurações
+DB_PATH = "classificacao.db"
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
+
+# Logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("ML_MODEL")
+
+# Inicializa Redis
+try:
+    cache = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
+    cache.ping()
+    REDIS_OK = True
+except redis.exceptions.ConnectionError:
+    REDIS_OK = False
+    logger.warning("Redis offline. Cache desabilitado.")
+
+# Banco SQLite (persistência)
+conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+conn.execute("PRAGMA journal_mode=WAL")
+conn.execute("""
+    CREATE TABLE IF NOT EXISTS palavras_classificadas (
+        palavra TEXT PRIMARY KEY,
+        relevante INTEGER,
+        score FLOAT,
+        criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+""")
+conn.commit()
+
+# Modelo (simples - pode ser treinado com dados reais futuramente)
+vectorizer = TfidfVectorizer()
+modelo = Pipeline([
+    ('tfidf', vectorizer),
+    ('clf', LogisticRegression(max_iter=1000))
+])
+
+# FastAPI
+app = FastAPI(title="Classificador de Palavras-Chave")
+security = OAuth2PasswordBearer(tokenUrl="token")
+
+# Métricas Prometheus
+REQUESTS = Counter("classify_requests_total", "Total de requisições")
+LATENCY = Histogram("classify_request_latency_seconds", "Tempo por requisição")
+
+@app.get("/metrics")
+async def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+# Mock: autenticação fake
+async def validar_token(token: str = Depends(security)):
+    if token != "secreto123":
+        raise HTTPException(status_code=401, detail="Token inválido")
+    return True
+
+# Utilitário de tempo
+def log_tempo_execucao(func):
+    def wrapper(*args, **kwargs):
+        inicio = time.time()
+        resultado = func(*args, **kwargs)
+        fim = time.time()
+        logger.info(f"Execução {func.__name__} levou {fim - inicio:.4f}s")
+        return resultado
+    return wrapper
+
+# Payload
+class PalavraPayload(BaseModel):
+    palavra: str
+
+# Pré-processamento simples
+def preprocessar(texto: str) -> str:
+    return texto.strip().lower()
+
+# Classificação
+@log_tempo_execucao
+def prever_relevancia(palavra: str, tags: Optional[list] = None) -> tuple[bool, float]:
+    palavra_proc = preprocessar(palavra)
+
+    # Tenta cache Redis
+    if REDIS_OK:
+        try:
+            cache_key = f"class:{palavra_proc}"
+            if cache.exists(cache_key):
+                score = float(cache.get(cache_key))
+                return score >= 0.5, score
+        except Exception as e:
+            logger.warning(f"Erro no Redis: {e}")
+
+    # Simulação (poderia chamar modelo real)
+    score = round(min(1.0, max(0.0, len(palavra_proc) % 10 / 10)), 2)
+    relevante = score >= 0.5
+
+    # Salva no cache e banco
+    if REDIS_OK:
+        try:
+            cache.set(cache_key, score)
+        except Exception as e:
+            logger.warning(f"Erro salvando no Redis: {e}")
+
+    try:
+        with conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO palavras_classificadas (palavra, relevante, score) VALUES (?, ?, ?)",
+                (palavra_proc, int(relevante), score)
+            )
+    except Exception as e:
+        logger.warning(f"Erro salvando no banco: {e}")
+
+    return relevante, score
+
+# Endpoint principal
+@app.post("/classificar", summary="Classifica uma palavra", tags=["Classificação"])
+@LATENCY.time()
+async def classificar(payload: PalavraPayload, autorizado: bool = Depends(validar_token), request: Request = None):
+    REQUESTS.inc()
+    palavra = payload.palavra.strip()
+    trace_id = str(uuid.uuid4())
+
+    if not palavra or len(palavra) < 3 or not palavra.isascii() or not any(c.isalpha() for c in palavra):
+        raise HTTPException(status_code=400, detail="Palavra malformada ou inválida")
+
+    relevante, score = prever_relevancia(palavra)
+
+    logger.info(f"[{trace_id}] Palavra: '{palavra}' → Relevante: {relevante} | Score: {score}")
+
+    return {
+        "palavra": palavra,
+        "relevante": relevante,
+        "score": score,
+        "trace_id": trace_id,
+        "ip": request.client.host if request else None
+    }

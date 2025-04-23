@@ -1,0 +1,87 @@
+// /src/components/palavras/AddPalavraModal.jsx
+import { useState, useEffect } from "react";
+import Modal from "@/components/ui/Modal";
+import Button from "@/components/ui/Button";
+import Input from "@/components/ui/Input";
+
+const AddPalavraModal = ({ isOpen, onClose, onConfirm, onSuccess, nichos = [], initialData = null }) => {
+  const [palavra, setPalavra] = useState("");
+  const [nichoId, setNichoId] = useState("");
+  const [errors, setErrors] = useState({ palavra: "", nicho: "" });
+
+  useEffect(() => {
+    if (initialData) {
+      setPalavra(initialData.palavra || "");
+      setNichoId(initialData.nichoId || "");
+    }
+  }, [initialData]);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    let hasError = false;
+    const newErrors = { palavra: "", nicho: "" };
+
+    if (!palavra.trim()) {
+      newErrors.palavra = "Informe a palavra-chave.";
+      hasError = true;
+    }
+    if (!nichoId) {
+      newErrors.nicho = "Selecione um nicho.";
+      hasError = true;
+    }
+    setErrors(newErrors);
+    if (hasError) return;
+
+    onConfirm({ palavra: palavra.trim(), nichoId });
+    setPalavra("");
+    setNichoId("");
+    setErrors({ palavra: "", nicho: "" });
+    onSuccess?.();
+  };
+
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Adicionar Palavra-chave"
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+          <Button type="submit" form="add-palavra-form">Salvar</Button>
+        </div>
+      }
+    >
+      <form id="add-palavra-form" onSubmit={handleSubmit} className="space-y-4">
+        <Input
+          id="palavra"
+          label="Palavra-chave"
+          value={palavra}
+          onChange={(e) => setPalavra(e.target.value)}
+          placeholder="Digite a palavra-chave"
+          error={errors.palavra}
+          autoFocus
+        />
+
+        <div>
+          <label htmlFor="nicho" className="block text-sm font-medium text-zinc-700 dark:text-zinc-200 mb-1">
+            Nicho
+          </label>
+          <select
+            id="nicho"
+            value={nichoId}
+            onChange={(e) => setNichoId(e.target.value)}
+            className="w-full px-3 py-2 border rounded-md bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-100 border-zinc-300 dark:border-zinc-700"
+          >
+            <option value="">Selecione um nicho</option>
+            {nichos.map((n) => (
+              <option key={n.id} value={n.id}>{n.nome}</option>
+            ))}
+          </select>
+          {errors.nicho && <p className="text-sm text-red-600 dark:text-red-400 mt-1">{errors.nicho}</p>}
+        </div>
+      </form>
+    </Modal>
+  );
+};
+
+export default AddPalavraModal;

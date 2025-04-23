@@ -1,0 +1,292 @@
+{
+  "type": "object",
+  "required": [
+    "threads",
+    "timeout",
+    "databases",
+    "features",
+    "scheduler",
+    "prompt_engine"
+  ],
+  "properties": {
+    "threads": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "timeout": {
+      "type": "integer",
+      "minimum": 5
+    },
+    "use_cache": {
+      "type": "boolean"
+    },
+    "retry_on_fail": {
+      "type": "boolean"
+    },
+    "log_level": {
+      "type": "string",
+      "enum": [
+        "DEBUG",
+        "INFO",
+        "WARNING",
+        "ERROR",
+        "CRITICAL"
+      ]
+    },
+    "log_rotation_days": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "logging": {
+      "type": "object",
+      "properties": {
+        "global_level": {
+          "type": "string",
+          "enum": [
+            "DEBUG",
+            "INFO",
+            "WARNING",
+            "ERROR",
+            "CRITICAL"
+          ]
+        },
+        "modules": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "enum": [
+              "DEBUG",
+              "INFO",
+              "WARNING",
+              "ERROR",
+              "CRITICAL"
+            ]
+          }
+        }
+      }
+    },
+    "databases": {
+      "type": "object",
+      "properties": {
+        "default": {
+          "type": "string"
+        },
+        "connections": {
+          "type": "object",
+          "properties": {
+            "sqlite": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              }
+            },
+            "postgresql": {
+              "type": "object",
+              "properties": {
+                "host": {
+                  "type": "string"
+                },
+                "port": {
+                  "type": "integer"
+                },
+                "username": {
+                  "type": "string"
+                },
+                "password": {
+                  "type": "string"
+                },
+                "dbname": {
+                  "type": "string"
+                }
+              }
+            },
+            "mysql": {
+              "type": "object",
+              "properties": {
+                "host": {
+                  "type": "string"
+                },
+                "port": {
+                  "type": "integer"
+                },
+                "username": {
+                  "type": "string"
+                },
+                "password": {
+                  "type": "string"
+                },
+                "dbname": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "features": {
+      "type": "object",
+      "patternProperties": {
+        "^[a-zA-Z0-9_]+$": {
+          "type": "object",
+          "required": [
+            "enabled",
+            "rollout"
+          ],
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "rollout": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            }
+          }
+        }
+      }
+    },
+    "prompt_engine": {
+      "type": "object",
+      "properties": {
+        "template_path": {
+          "type": "string"
+        },
+        "placeholders": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "default_language": {
+          "type": "string"
+        },
+        "cluster_depth": {
+          "type": "integer"
+        }
+      }
+    },
+    "scheduler": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "daily_window": {
+          "type": "string"
+        },
+        "modules": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "port": {
+          "type": "integer"
+        }
+      }
+    },
+    "api_rate_limit": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "requests_per_minute": {
+          "type": "integer"
+        }
+      }
+    },
+    "i18n": {
+      "type": "object",
+      "properties": {
+        "default_locale": {
+          "type": "string"
+        },
+        "fallback_locale": {
+          "type": "string"
+        },
+        "available_locales": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "auth": {
+      "type": "object",
+      "properties": {
+        "jwt_expiration_minutes": {
+          "type": "integer"
+        },
+        "oauth_providers": {
+          "type": "object",
+          "properties": {
+            "google": {
+              "type": "object",
+              "properties": {
+                "client_id": {
+                  "type": "string"
+                },
+                "client_secret": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "integrations": {
+      "type": "object",
+      "properties": {
+        "notion": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "api_key": {
+              "type": "string"
+            },
+            "database_id": {
+              "type": "string"
+            }
+          }
+        },
+        "wordpress": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "url": {
+              "type": "string"
+            },
+            "username": {
+              "type": "string"
+            },
+            "application_password": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block content %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+<script src="https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/2.3.6/js/dataTables.buttons.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/2.3.6/js/buttons.html5.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.3/jszip.min.js"></script>
+<link rel="stylesheet" href="https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css">
+<link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.3.6/css/buttons.dataTables.min.css">
+
+<div class="container mt-4">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h1>📋 Templates de Prompt</h1>
+    <a class="btn btn-success" href="/admin/templates/novo">➕ Novo Template</a>
+  </div>
+
+  <div class="row mb-3">
+    <div class="col-md-6">
+      <label for="filtroNicho" class="form-label">Filtrar por Nicho</label>
+      <input type="text" class="form-control" id="filtroNicho" placeholder="Digite o nicho...">
+    </div>
+    <div class="col-md-6">
+      <label for="filtroCategoria" class="form-label">Filtrar por Categoria</label>
+      <select id="filtroCategoria" class="form-select">
+        <option value="">Todas</option>
+        <option value="Segunda">Segunda</option>
+        <option value="Terça">Terça</option>
+        <option value="Quarta">Quarta</option>
+        <option value="Quinta">Quinta</option>
+        <option value="Sexta">Sexta</option>
+        <option value="Sábado">Sábado</option>
+        <option value="Domingo">Domingo</option>
+      </select>
+    </div>
+  </div>
+
+  <table id="promptTable" class="table table-striped table-bordered">
+    <thead class="table-light">
+      <tr>
+        <th>Nome</th>
+        <th>Nicho</th>
+        <th>Categoria</th>
+        <th>Tipo</th>
+        <th>Status</th>
+        <th>Criado em</th>
+        <th>Ações</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for tpl in templates %}
+      <tr>
+        <td>{{ tpl.nome }}</td>
+        <td>{{ tpl.nicho }}</td>
+        <td>{{ tpl.categoria.value }}</td>
+        <td>{{ tpl.tipo_template }}</td>
+        <td>
+          {% if tpl.ativo %}
+            <span class="badge bg-success">Ativo</span>
+          {% else %}
+            <span class="badge bg-danger">Inativo</span>
+          {% endif %}
+        </td>
+        <td>{{ tpl.criado_em.strftime('%d/%m/%Y %H:%M') }}</td>
+        <td>
+          <a class="btn btn-sm btn-outline-primary" href="/admin/templates/{{ tpl.id }}/editar">✏️ Editar</a>
+          <a class="btn btn-sm btn-outline-danger" href="/admin/templates/{{ tpl.id }}/excluir">🗑️ Excluir</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<script>
+  $(document).ready(function () {
+    const table = $('#promptTable').DataTable({
+      dom: 'Bfrtip',
+      buttons: [
+        {
+          extend: 'csvHtml5',
+          text: '📤 Exportar CSV',
+          className: 'btn btn-outline-primary btn-sm me-2'
+        },
+        {
+          extend: 'excelHtml5',
+          text: '📊 Exportar Excel',
+          className: 'btn btn-outline-success btn-sm'
+        }
+      ],
+      language: {
+        url: '//cdn.datatables.net/plug-ins/1.13.4/i18n/pt-BR.json'
+      }
+    });
+
+    $('#filtroNicho').on('keyup', function () {
+      table.column(1).search(this.value).draw();
+    });
+
+    $('#filtroCategoria').on('change', function () {
+      table.column(2).search(this.value).draw();
+    });
+  });
+</script>
+{% endblock %}

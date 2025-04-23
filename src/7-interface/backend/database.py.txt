@@ -1,0 +1,125 @@
+import os
+import logging
+import time
+import redis
+from sqlalchemy import create_engine, MetaData
+from sqlalchemy.orm import sessionmaker, scoped_session
+from sqlalchemy.exc import OperationalError
+from dotenv import load_dotenv
+import alembic.config
+from prometheus_client import Gauge, start_http_server
+import threading
+import shutil
+from datetime import datetime
+import pytest
+
+# 🔄 Carregar variáveis de ambiente
+load_dotenv()
+
+# 📢 Configuração de Logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
+
+# 📦 Configuração do Banco de Dados
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///db.sqlite3")
+POOL_SIZE = int(os.getenv("POOL_SIZE", 5))
+MAX_OVERFLOW = int(os.getenv("MAX_OVERFLOW", 10))
+TIMEOUT = int(os.getenv("DB_TIMEOUT", 10))
+BACKUP_DIR = os.getenv("BACKUP_DIR", "./db_backups")
+
+# 🚀 Criando Engine do Banco de Dados
+engine = create_engine(
+    DATABASE_URL,
+    pool_size=POOL_SIZE,
+    max_overflow=MAX_OVERFLOW,
+    connect_args={"timeout": TIMEOUT} if "sqlite" in DATABASE_URL else {},
+    echo=os.getenv("SQLALCHEMY_ECHO", "False") == "True",
+)
+
+SessionLocal = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=engine))
+metadata = MetaData()
+
+# 🔄 Configuração de Cache (Redis)
+CACHE_ENABLED = os.getenv("CACHE_ENABLED", "True") == "True"
+if CACHE_ENABLED:
+    redis_client = redis.Redis(host=os.getenv("REDIS_HOST", "localhost"), port=int(os.getenv("REDIS_PORT", 6379)), db=0)
+    logging.info("⚡ Redis ativado para cache de consultas frequentes.")
+
+# 📊 Monitoramento de Banco com Prometheus
+DB_CONNECTIONS = Gauge("db_active_connections", "Número de conexões ativas com o banco")
+DB_QUERY_TIME = Gauge("db_query_time", "Tempo de execução das queries")
+
+start_http_server(8001)  # Exposição das métricas no endpoint /metrics
+
+def monitor_database():
+    while True:
+        try:
+            with engine.connect() as conn:
+                start_time = time.time()
+                conn.execute("SELECT 1")
+                query_time = time.time() - start_time
+                DB_QUERY_TIME.set(query_time)
+                DB_CONNECTIONS.set(engine.pool.status())
+                logging.info(f"📊 Query time: {query_time:.4f}s - Conexões ativas: {engine.pool.status()}")
+        except OperationalError as e:
+            logging.error(f"❌ Erro ao monitorar o banco: {e}")
+        time.sleep(10)
+
+threading.Thread(target=monitor_database, daemon=True).start()
+
+# 🔄 Função para Testar Conexão com o Banco
+def test_db_connection():
+    retries = 5
+    for attempt in range(retries):
+        try:
+            with engine.connect() as conn:
+                conn.execute("SELECT 1")
+                logging.info("✅ Conexão com o banco de dados bem-sucedida!")
+                return
+        except OperationalError as e:
+            logging.warning(f"⚠️ Falha na conexão ({attempt+1}/{retries}): {e}")
+            time.sleep(2)
+    logging.error("❌ Não foi possível conectar ao banco de dados após várias tentativas!")
+
+# 🔄 Função para Aplicar Migrações Alembic
+def run_migrations():
+    logging.info("🔄 Executando migrações do banco de dados...")
+    alembic.config.main(["--raiseerr", "upgrade", "head"])
+
+# 🛠 Backup Automático do Banco de Dados
+def backup_database():
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = os.path.join(BACKUP_DIR, f"backup_{timestamp}.sqlite3")
+    try:
+        if "sqlite" in DATABASE_URL:
+            shutil.copyfile(DATABASE_URL.replace("sqlite:///", ""), backup_path)
+            logging.info(f"📦 Backup do banco criado: {backup_path}")
+        else:
+            logging.warning("⚠️ Backup automático só está configurado para SQLite no momento.")
+    except Exception as e:
+        logging.error(f"❌ Erro ao criar backup: {e}")
+
+# 🔄 Inicialização do Banco de Dados
+def init_db():
+    test_db_connection()
+    run_migrations()
+    backup_database()
+    logging.info("✅ Banco de dados inicializado com sucesso!")
+
+# 🔬 Testes Automatizados com `pytest`
+@pytest.fixture
+def db_session():
+    return SessionLocal()
+
+@pytest.mark.parametrize("query, expected", [
+    ("SELECT 1", 1),
+])
+def test_database_queries(db_session, query, expected):
+    result = db_session.execute(query).fetchone()
+    assert result[0] == expected
+
+if __name__ == "__main__":
+    init_db()

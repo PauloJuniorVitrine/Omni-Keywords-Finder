@@ -1,0 +1,128 @@
+// /src/pages/Palavras.jsx
+import { useState } from "react";
+import Table from "@/components/ui/Table";
+import Button from "@/components/ui/Button";
+import Loader from "@/components/ui/Loader";
+import Toast from "@/components/ui/Toast";
+import DeletePalavraModal from "@/components/palavras/DeletePalavraModal";
+import AddPalavraModal from "@/components/palavras/AddPalavraModal";
+import EditPalavraModal from "@/components/palavras/EditPalavraModal";
+import { usePalavras } from "@/hooks/usePalavras";
+import { useNichos } from "@/hooks/useNichos";
+
+const PalavrasPage = () => {
+  const { palavras, loading, error, refresh, removePalavra } = usePalavras();
+  const { nichos } = useNichos();
+  const [toast, setToast] = useState(null);
+  const [selected, setSelected] = useState(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+
+  const handleDelete = (item) => {
+    setSelected(item);
+    setModalOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    const result = await removePalavra(selected.id);
+    setModalOpen(false);
+    setToast({
+      type: result.success ? "success" : "error",
+      message: result.success ? "Palavra-chave excluída com sucesso" : "Erro ao excluir palavra-chave"
+    });
+  };
+
+  const handleEdit = (item) => {
+    setSelected(item);
+    setEditOpen(true);
+  };
+
+  const handleAdd = (data) => {
+    console.log("Nova palavra adicionada:", data);
+    setToast({ type: "success", message: "Palavra adicionada com sucesso" });
+    setAddOpen(false);
+    refresh();
+  };
+
+  const handleUpdate = (data) => {
+    console.log("Palavra editada:", data);
+    setToast({ type: "success", message: "Palavra atualizada com sucesso" });
+    setEditOpen(false);
+    refresh();
+  };
+
+  const columns = [
+    { key: "palavra", label: "Palavra-chave" },
+    { key: "nicho", label: "Nicho" },
+    {
+      key: "acoes",
+      label: "Ações",
+      render: (_, row) => (
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={() => handleEdit(row)} aria-label={`Editar palavra ${row.palavra}`}>Editar</Button>
+          <Button variant="danger" onClick={() => handleDelete(row)} aria-label={`Excluir palavra ${row.palavra}`}>Excluir</Button>
+        </div>
+      )
+    }
+  ];
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-xl font-semibold">Gerenciar Palavras-chave</h2>
+        <Button onClick={() => setAddOpen(true)}>Adicionar Palavra</Button>
+      </div>
+
+      {error && (
+        <div className="mb-4 p-3 rounded bg-red-100 text-red-700 border border-red-300">
+          {error}
+        </div>
+      )}
+
+      {loading ? (
+        <Loader />
+      ) : (
+        <Table
+          columns={columns}
+          data={palavras}
+          emptyText="Nenhuma palavra-chave cadastrada. Clique no botão acima para adicionar."
+        />
+      )}
+
+      <DeletePalavraModal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onConfirm={confirmDelete}
+        item={selected}
+      />
+
+      <AddPalavraModal
+        isOpen={addOpen}
+        onClose={() => setAddOpen(false)}
+        onConfirm={handleAdd}
+        onSuccess={() => refresh()}
+        nichos={nichos}
+      />
+
+      <EditPalavraModal
+        isOpen={editOpen}
+        onClose={() => setEditOpen(false)}
+        onConfirm={handleUpdate}
+        onSuccess={() => refresh()}
+        initialData={selected}
+        nichos={nichos}
+      />
+
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
+    </div>
+  );
+};
+
+export default PalavrasPage;

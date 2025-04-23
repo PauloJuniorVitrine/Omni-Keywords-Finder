@@ -1,0 +1,102 @@
+# queries.py — Enterprise Plus++
+# Consultas e operações sobre o banco global de palavras-chave
+
+import sqlite3
+import csv
+import logging
+from pathlib import Path
+from datetime import datetime
+from database_connection import conectar_banco
+
+# === Logging ===
+LOG_PATH = Path("logs")
+LOG_PATH.mkdir(exist_ok=True)
+log_file = LOG_PATH / f"queries_{datetime.now().strftime('%Y%m%d')}.log"
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler(log_file),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger("queries")
+
+# === Funções de consulta ===
+def buscar_por_tema(tema, limite=100):
+    try:
+        db = conectar_banco()
+        consulta = """
+            SELECT palavra, tags, escore, validado, origem
+            FROM palavras_chave
+            WHERE tema = ?
+            ORDER BY escore DESC
+            LIMIT ?
+        """
+        resultado = db.executar_consulta(consulta, (tema, limite))
+        logger.info(f"🔎 {len(resultado)} palavras encontradas para o tema: {tema}")
+        return resultado
+    except Exception as e:
+        logger.error(f"❌ Erro ao buscar por tema: {e}")
+        return []
+
+def buscar_validadas_por_origem(origem, escore_minimo=0.7):
+    try:
+        db = conectar_banco()
+        consulta = """
+            SELECT palavra, tema, escore, tags
+            FROM palavras_chave
+            WHERE origem = ? AND validado = 1 AND escore >= ?
+            ORDER BY escore DESC
+        """
+        resultado = db.executar_consulta(consulta, (origem, escore_minimo))
+        logger.info(f"📊 {len(resultado)} palavras validadas da origem: {origem}")
+        return resultado
+    except Exception as e:
+        logger.error(f"❌ Erro ao buscar validadas por origem: {e}")
+        return []
+
+def buscar_por_tag(tag):
+    try:
+        db = conectar_banco()
+        consulta = """
+            SELECT palavra, tema, escore, tags
+            FROM palavras_chave
+            WHERE tags LIKE ?
+            ORDER BY escore DESC
+        """
+        resultado = db.executar_consulta(consulta, (f"%{tag}%",))
+        logger.info(f"🏷️ {len(resultado)} palavras encontradas com a tag: {tag}")
+        return resultado
+    except Exception as e:
+        logger.error(f"❌ Erro ao buscar por tag: {e}")
+        return []
+
+def excluir_por_tema(tema):
+    try:
+        db = conectar_banco()
+        consulta = "DELETE FROM palavras_chave WHERE tema = ?"
+        sucesso = db.executar_modificacao(consulta, (tema,))
+        if sucesso:
+            logger.info(f"🗑️ Palavras do tema '{tema}' excluídas com sucesso.")
+        return sucesso
+    except Exception as e:
+        logger.error(f"❌ Erro ao excluir tema: {e}")
+        return False
+
+def exportar_para_csv(dados, caminho):
+    try:
+        with open(caminho, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["palavra", "tema", "escore", "tags"])
+            writer.writerows(dados)
+        logger.info(f"💾 Exportação concluída: {caminho}")
+    except Exception as e:
+        logger.error(f"❌ Erro ao exportar CSV: {e}")
+
+def fechar_conexao():
+    try:
+        db = conectar_banco()
+        db.fechar_conexao()
+    except Exception as e:
+        logger.warning(f"⚠️ Erro ao encerrar conexão: {e}")

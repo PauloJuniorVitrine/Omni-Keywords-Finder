@@ -1,0 +1,175 @@
+import React, { useEffect, useState, useCallback } from "react";
+import { toast } from "react-toastify";
+import { motion } from "framer-motion";
+import { debounce } from "lodash";
+import "react-toastify/dist/ReactToastify.css";
+import "./Palavras.css";
+
+const Palavras = () => {
+    const [palavras, setPalavras] = useState([]);
+    const [novaPalavra, setNovaPalavra] = useState("");
+    const [carregando, setCarregando] = useState(false);
+    const [editando, setEditando] = useState(null);
+    const [tempPalavra, setTempPalavra] = useState("");
+    const [sugestoes, setSugestoes] = useState([]);
+
+    useEffect(() => {
+        buscarPalavras();
+    }, []);
+
+    const buscarPalavras = async () => {
+        try {
+            setCarregando(true);
+            const resposta = await fetch("/api/palavras");
+            const dados = await resposta.json();
+            setPalavras(dados.sort((a, b) => a.nome.localeCompare(b.nome)));
+        } catch (erro) {
+            toast.error("Erro ao carregar palavras-chave");
+        } finally {
+            setCarregando(false);
+        }
+    };
+
+    const adicionarPalavra = async () => {
+        if (!novaPalavra.trim()) {
+            toast.error("A palavra não pode estar vazia.");
+            return;
+        }
+
+        setCarregando(true);
+        try {
+            const resposta = await fetch("/api/palavras", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ nome: novaPalavra.trim() }),
+            });
+            if (!resposta.ok) throw new Error("Erro ao adicionar palavra-chave");
+            toast.success("Palavra adicionada com sucesso!");
+            buscarPalavras();
+            setNovaPalavra("");
+        } catch (erro) {
+            toast.error("Erro ao adicionar palavra-chave");
+        } finally {
+            setCarregando(false);
+        }
+    };
+
+    const removerPalavra = async (id) => {
+        if (!window.confirm("Tem certeza que deseja remover esta palavra?")) return;
+        setCarregando(true);
+        try {
+            const resposta = await fetch(`/api/palavras/${id}`, { method: "DELETE" });
+            if (!resposta.ok) throw new Error("Erro ao remover palavra-chave");
+            toast.success("Palavra removida com sucesso!");
+            buscarPalavras();
+        } catch (erro) {
+            toast.error("Erro ao remover palavra-chave");
+        } finally {
+            setCarregando(false);
+        }
+    };
+
+    const iniciarEdicao = (palavra) => {
+        setEditando(palavra.id);
+        setTempPalavra(palavra.nome);
+    };
+
+    const salvarEdicao = async (id) => {
+        if (!tempPalavra.trim()) {
+            toast.error("A palavra não pode estar vazia.");
+            return;
+        }
+
+        setCarregando(true);
+        try {
+            const resposta = await fetch(`/api/palavras/${id}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ nome: tempPalavra.trim() }),
+            });
+            if (!resposta.ok) throw new Error("Erro ao editar palavra-chave");
+            toast.success("Palavra atualizada com sucesso!");
+            setEditando(null);
+            buscarPalavras();
+        } catch (erro) {
+            toast.error("Erro ao editar palavra-chave");
+        } finally {
+            setCarregando(false);
+        }
+    };
+
+    const handleInputChange = (e) => {
+        const valor = e.target.value;
+        setNovaPalavra(valor);
+        debouncedSugestoes(valor);
+    };
+
+    const buscarSugestoes = async (query) => {
+        if (!query.trim()) {
+            setSugestoes([]);
+            return;
+        }
+
+        try {
+            const resposta = await fetch(`/api/sugestoes?query=${query}`);
+            const dados = await resposta.json();
+            setSugestoes(dados);
+        } catch (erro) {
+            setSugestoes([]);
+        }
+    };
+
+    const debouncedSugestoes = useCallback(debounce(buscarSugestoes, 300), []);
+
+    return (
+        <div className="palavras-container">
+            <h2>Gerenciamento de Palavras-chave</h2>
+            <div className="palavras-input">
+                <input
+                    type="text"
+                    value={novaPalavra}
+                    onChange={handleInputChange}
+                    placeholder="Digite uma nova palavra"
+                    disabled={carregando}
+                />
+                <button onClick={adicionarPalavra} disabled={carregando}>
+                    {carregando ? "Salvando..." : "Adicionar"}
+                </button>
+                {sugestoes.length > 0 && (
+                    <ul className="sugestoes-list">
+                        {sugestoes.map((sugestao, index) => (
+                            <li key={index}>{sugestao}</li>
+                        ))}
+                    </ul>
+                )}
+            </div>
+            {carregando ? (
+                <p>Carregando palavras...</p>
+            ) : (
+                <motion.ul initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                    {palavras.map((palavra) => (
+                        <motion.li key={palavra.id} initial={{ y: 10 }} animate={{ y: 0 }} transition={{ duration: 0.3 }}>
+                            {editando === palavra.id ? (
+                                <input
+                                    type="text"
+                                    value={tempPalavra}
+                                    onChange={(e) => setTempPalavra(e.target.value)}
+                                    onBlur={() => salvarEdicao(palavra.id)}
+                                    onKeyPress={(e) => e.key === "Enter" && salvarEdicao(palavra.id)}
+                                />
+                            ) : (
+                                <>
+                                    {palavra.nome}
+                                    <button onClick={() => iniciarEdicao(palavra)} disabled={carregando}>Editar</button>
+                                    <button onClick={() => removerPalavra(palavra.id)} disabled={carregando}>Remover</button>
+                                </>
+                            )}
+                        </motion.li>
+                    ))}
+                </motion.ul>
+            )}
+        </div>
+    );
+};
+
+export default Palavras;

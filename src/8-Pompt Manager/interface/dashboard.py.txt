@@ -1,0 +1,114 @@
+import dash
+from dash import dcc, html, Input, Output, State
+import plotly.express as px
+import pandas as pd
+import dash_bootstrap_components as dbc
+import flask
+from flask import jsonify
+import threading
+import time
+
+# Inicializar Flask para API REST
+server = flask.Flask(__name__)
+app = dash.Dash(__name__, server=server, external_stylesheets=[dbc.themes.BOOTSTRAP])
+
+# Simulação de dados
+df = pd.DataFrame({
+    "Palavra-chave": ["SEO", "Marketing Digital", "Ads", "Copywriting", "Conversão"],
+    "Performance": [85, 70, 90, 65, 75],
+    "Categoria": ["Tráfego", "Estratégia", "Anúncios", "Conteúdo", "Conversão"],
+    "Data": pd.date_range(start="2024-03-01", periods=5, freq='D')
+})
+
+# Layout do dashboard
+app.layout = dbc.Container([
+    html.H1("📊 Dashboard de Palavras-chave", className="text-center mb-4"),
+    
+    dbc.Row([
+        dbc.Col([
+            dcc.Dropdown(
+                id="keyword-dropdown",
+                options=[{"label": k, "value": k} for k in df["Palavra-chave"].unique()],
+                placeholder="Selecione uma palavra-chave",
+                className="mb-3"
+            ),
+            dcc.Slider(
+                id="performance-slider",
+                min=0,
+                max=100,
+                step=5,
+                marks={i: str(i) for i in range(0, 101, 10)},
+                tooltip={"placement": "bottom", "always_visible": True},
+                className="mb-3"
+            ),
+            dbc.Button("Atualizar Performance", id="update-button", color="primary", className="mb-3"),
+            dcc.Loading(
+                id="loading-output",
+                type="circle",
+                children=[html.Div(id="feedback-message", className="mt-2")]
+            ),
+        ], width=4),
+        
+        dbc.Col([
+            dcc.Dropdown(
+                id="category-filter",
+                options=[{"label": c, "value": c} for c in df["Categoria"].unique()],
+                placeholder="Filtrar por Categoria",
+                className="mb-3"
+            ),
+            dcc.DatePickerRange(
+                id="date-filter",
+                start_date=df["Data"].min(),
+                end_date=df["Data"].max(),
+                display_format='YYYY-MM-DD',
+                className="mb-3"
+            ),
+            dcc.Graph(id="performance-chart"),
+            dcc.Store(id="cached-data")
+        ], width=8)
+    ])
+], fluid=True)
+
+# Callback para atualizar gráfico e mensagens
+@app.callback(
+    [Output("performance-chart", "figure"), Output("feedback-message", "children"), Output("cached-data", "data")],
+    [Input("update-button", "n_clicks"), Input("category-filter", "value"), Input("date-filter", "start_date"), Input("date-filter", "end_date")],
+    [State("keyword-dropdown", "value"), State("performance-slider", "value"), State("cached-data", "data")]
+)
+def update_chart(n_clicks, selected_category, start_date, end_date, selected_keyword, new_performance, cached_data):
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+    
+    if not selected_keyword or new_performance is None:
+        return dash.no_update, dbc.Alert("⚠️ Selecione uma palavra-chave e ajuste a performance.", color="warning"), dash.no_update
+    
+    df_updated = pd.DataFrame(cached_data) if cached_data else df.copy()
+    df_updated.loc[df_updated["Palavra-chave"] == selected_keyword, "Performance"] = new_performance
+    
+    if selected_category:
+        df_updated = df_updated[df_updated["Categoria"] == selected_category]
+    if start_date and end_date:
+        df_updated = df_updated[(df_updated["Data"] >= start_date) & (df_updated["Data"] <= end_date)]
+    
+    fig = px.bar(df_updated, x="Palavra-chave", y="Performance", title="Desempenho das Palavras-chave", color="Performance", 
+                 color_continuous_scale="Viridis")
+    
+    return fig, dbc.Alert("✅ Performance atualizada com sucesso!", color="success"), df_updated.to_dict("records")
+
+# API REST para dados do dashboard
+@server.route("/api/dashboard", methods=["GET"])
+def get_dashboard_data():
+    return jsonify(df.to_dict("records"))
+
+# Atualização automática com threading
+def update_data_periodically():
+    while True:
+        time.sleep(30)  # Atualiza a cada 30 segundos
+        df["Performance"] = df["Performance"] + 1  # Simulação de atualização dinâmica
+
+thread = threading.Thread(target=update_data_periodically)
+thread.daemon = True
+thread.start()
+
+if __name__ == "__main__":
+    app.run_server(debug=True)

@@ -1,0 +1,29 @@
+{
+  "debug": false,
+  "prompt_engine": {
+    "model": "gpt-4o",
+    "temperature": 0.7,
+    "max_tokens": 4000,
+    "timeout": 30,
+    "retries": 3,
+    "fallback_model": "gpt-3.5-turbo"
+  },
+  "test_generation": {
+    "include_comments": true,
+    "include_assertions": true,
+    "default_framework": "pytest",
+    "template_path": "templates/default_test_template.jinja2"
+  },
+  "execution": {
+    "timeout": 60,
+    "memory_limit_mb": 1024,
+    "isolated_environment": true,
+    "cleanup_generated_tests": true
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "test_runner.log",
+    "max_size_mb": 10,
+    "backup_count": 3
+  }
+}

@@ -1,0 +1,146 @@
+# 🧪 Prompt de Teste Unitário - CoCoT Precision
+
+## 🎯 OBJETIVO
+Testar a função `[NOME_DA_FUNÇÃO]` do módulo `[CAMINHO/ARQUIVO]` assegurando:
+- Comportamento determinístico
+- Tratamento de exceções
+- Cobertura total de lógica, bordas e falhas
+- Validação de performance (quando aplicável)
+- Contrato de interface (se aplicável)
+- Isolamento via fixture (ambiente controlado)
+- Zero dependências externas reais
+
+---
+
+## ✅ CENÁRIOS A COBRIR
+
+### 1. 🧮 Teste Determinístico
+```python
+def test_[nome]_[resultado_esperado]():
+    # Arrange
+    instancia = [Classe]()
+    
+    # Act
+    resultado = instancia.[método](entrada_padrao)
+    
+    # Assert
+    assert resultado == resultado_esperado
+```
+
+### 2. ❌ Teste de Exceção
+```python
+def test_[nome]_raises_exception_on_invalid_input():
+    instancia = [Classe]()
+
+    with pytest.raises([ExcecaoEsperada]) as excinfo:
+        instancia.[método](entrada_invalida)
+
+    assert "mensagem esperada" in str(excinfo.value)
+```
+
+### 3. ⚡ Teste de Performance Unitária
+```python
+def test_[nome]_performance_below_threshold():
+    inicio = time.perf_counter()
+    resultado = [método](param)
+    duracao = time.perf_counter() - inicio
+
+    assert resultado == esperado
+    assert duracao < limite_em_segundos
+```
+
+### 4. 📐 Teste Baseado em Propriedade (Hypothesis)
+```python
+@given(st.integers(), st.integers())
+def test_[nome]_satisfies_commutative_property(a, b):
+    assert [função](a, b) == [função](b, a)
+```
+
+### 5. 🧼 Teste de Normalização de Dados
+```python
+def test_[nome]_normaliza_dados_corretamente():
+    entrada = {"Nome": " João ", "Idade": "30"}
+    esperado = {"nome": "joão", "idade": 30}
+    
+    assert [classe]().normalizar(entrada) == esperado
+```
+
+### 6. 📋 Teste de Contrato de Interface
+```python
+def test_[classe]_implements_interface():
+    repo = [classe]()
+    assert hasattr(repo, "save")
+    assert hasattr(repo, "delete")
+
+    usuario = User(id=1, name="Teste")
+    repo.save(usuario)
+    assert repo.find_by_id(1) == usuario
+```
+
+### 7. 🧪 Isolamento via Fixture
+```python
+@pytest.fixture
+def ambiente_controlado():
+    db = MockDatabase()
+    sistema = Sistema(db=db)
+    yield sistema
+    db.reset()
+
+def test_[nome]_com_ambiente_controlado(ambiente_controlado):
+    resultado = ambiente_controlado.executar("entrada")
+    assert resultado == "esperado"
+```
+
+### 8. 🧱 Teste de Código Defensivo
+```python
+def test_[nome]_seguro_com_none_e_dados_invalidos():
+    assert [classe]().processar(None) == VALOR_PADRAO
+    with pytest.raises(ValueError):
+        [classe]().processar("inválido")
+```
+
+---
+
+## 📊 MATRIZ DE COBERTURA (exemplo)
+```json
+{
+  "module": "[nome_modulo]",
+  "coverage": {
+    "statements": "100%",
+    "branches": "95%",
+    "edge_cases": [
+      "entrada_vazia", "valor_nulo", "limite_superior"
+    ],
+    "error_paths": [
+      "input_malformado", "falha_externa_simulada"
+    ]
+  }
+}
+```
+
+---
+
+## 🚦 CHECKLIST DE QUALIDADE
+
+- [x] Caminhos positivos e negativos cobertos  
+- [x] Todos os erros previstos testados  
+- [x] Isolamento garantido via fixture  
+- [x] Assertivas específicas e claras  
+- [x] Nenhuma dependência real  
+- [x] Performance validada (se aplicável)  
+- [x] Testes baseados em propriedades incluídos  
+- [x] Interface contratual verificada (se aplicável)  
+
+---
+
+## 🧠 PADRÕES ADICIONAIS
+
+- Testes com nomeação descritiva: `test_[unidade]_[comportamento]_[condicao]`
+- Ambiente controlado com setup/teardown automatizado (fixtures)
+- Documentação embarcada no próprio teste
+- Cobertura com `coverage.py` ou `pytest-cov`
+- Performance com `pytest-benchmark` se necessário
+
+---
+
+**Pronto para CI/CD e produção. Copie, adapte e aplique nos seus módulos.**

@@ -1,0 +1,121 @@
+<!-- dashboard.html -->
+{% extends "base.html" %}
+{% block content %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/countup.js@2.0.7/dist/countUp.umd.js"></script>
+<div class="container mt-4">
+  <h1 class="mb-4">📊 Dashboard de Métricas <small class="text-muted fs-6">({{ now.strftime('%d/%m/%Y') }})</small></h1>
+
+  <div class="row g-4">
+    <div class="col-md-3">
+      <div class="card text-bg-primary">
+        <div class="card-body">
+          <h5 class="card-title">Total de Templates</h5>
+          <p id="totalCount" class="card-text display-6">0</p>
+          <a href="/admin/templates" class="stretched-link"></a>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-3">
+      <div class="card text-bg-success">
+        <div class="card-body">
+          <h5 class="card-title">Ativos</h5>
+          <p id="ativosCount" class="card-text display-6">0</p>
+          <a href="/admin/templates?ativo=1" class="stretched-link"></a>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-3">
+      <div class="card text-bg-danger">
+        <div class="card-body">
+          <h5 class="card-title">Inativos</h5>
+          <p id="inativosCount" class="card-text display-6">0</p>
+          <a href="/admin/templates?ativo=0" class="stretched-link"></a>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-3">
+      <div class="card text-bg-warning">
+        <div class="card-body">
+          <h5 class="card-title">Criados Hoje</h5>
+          <p id="hojeCount" class="card-text display-6">0</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="my-5">
+
+  <div class="row mb-5">
+    <div class="col-md-6">
+      <h5 class="mb-3">📅 Templates por Categoria</h5>
+      <canvas id="categoriaChart" height="220"></canvas>
+    </div>
+    <div class="col-md-6">
+      <h5 class="mb-3">📚 Templates por Nicho</h5>
+      <canvas id="nichoChart" height="220"></canvas>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="col-12">
+      <h5 class="mb-3">🆕 Últimos Templates Criados</h5>
+      <ul class="list-group">
+        {% for tpl in ultimos %}
+          <li class="list-group-item d-flex justify-content-between">
+            <span>{{ tpl.nome }}</span>
+            <span class="text-muted">{{ tpl.criado_em.strftime('%d/%m %H:%M') }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+
+<script>
+  const categoriaData = {
+    labels: {{ por_categoria.keys()|list|tojson }},
+    datasets: [{
+      label: 'Categorias',
+      data: {{ por_categoria.values()|list|tojson }},
+      backgroundColor: '#ffc107'
+    }]
+  };
+
+  const nichoData = {
+    labels: {{ por_nicho.keys()|list|tojson }},
+    datasets: [{
+      label: 'Nichos',
+      data: {{ por_nicho.values()|list|tojson }},
+      backgroundColor: '#0dcaf0'
+    }]
+  };
+
+  new Chart(document.getElementById('categoriaChart'), {
+    type: 'bar',
+    data: categoriaData,
+    options: { responsive: true, plugins: { legend: { display: false } } }
+  });
+
+  new Chart(document.getElementById('nichoChart'), {
+    type: 'pie',
+    data: nichoData,
+    options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+  });
+
+  const counters = [
+    { id: 'totalCount', endVal: {{ total }} },
+    { id: 'ativosCount', endVal: {{ ativos }} },
+    { id: 'inativosCount', endVal: {{ inativos }} },
+    { id: 'hojeCount', endVal: {{ hoje }} }
+  ];
+
+  counters.forEach(c => {
+    const counter = new countUp.CountUp(c.id, c.endVal);
+    if (!counter.error) counter.start();
+  });
+</script>
+{% endblock %}

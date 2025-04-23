@@ -1,0 +1,80 @@
+# backup.py — Enterprise Plus++
+# Backup completo do sistema com rastreabilidade, logs e metadados estruturados
+
+import os
+import json
+import shutil
+import zipfile
+import logging
+from pathlib import Path
+from datetime import datetime
+import uuid
+
+# === Configurações ===
+BASE_DIR = Path(".")
+BACKUP_DIR = BASE_DIR / "backup"
+COMPONENTES = [
+    "global_keywords.db",
+    "export",
+    "logs",
+    "metricas",
+    "prom"
+]
+BACKUP_DIR.mkdir(exist_ok=True, parents=True)
+TRACE_ID = str(uuid.uuid4())
+
+# === Logger ===
+LOG_PATH = BACKUP_DIR / "logs"
+LOG_PATH.mkdir(exist_ok=True)
+log_file = LOG_PATH / f"backup_{datetime.now().strftime('%Y%m%d')}.log"
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] [%(trace_id)s] %(message)s",
+    handlers=[
+        logging.FileHandler(log_file),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.LoggerAdapter(logging.getLogger("backup"), {"trace_id": TRACE_ID})
+
+# === Função principal ===
+def realizar_backup():
+    data_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    nome_backup = f"backup_{data_str}_{TRACE_ID}.zip"
+    caminho_zip = BACKUP_DIR / nome_backup
+    metadados = {
+        "trace_id": TRACE_ID,
+        "timestamp": data_str,
+        "arquivos_incluidos": [],
+        "tamanho_total_bytes": 0
+    }
+
+    with zipfile.ZipFile(caminho_zip, 'w', compression=zipfile.ZIP_DEFLATED) as zipf:
+        for item in COMPONENTES:
+            caminho = BASE_DIR / item
+            if caminho.exists():
+                if caminho.is_file():
+                    zipf.write(caminho, arcname=item)
+                    metadados["arquivos_incluidos"].append(item)
+                    metadados["tamanho_total_bytes"] += caminho.stat().st_size
+                else:
+                    for subpath in caminho.rglob("*"):
+                        if subpath.is_file():
+                            arcname = subpath.relative_to(BASE_DIR)
+                            zipf.write(subpath, arcname=arcname)
+                            metadados["arquivos_incluidos"].append(str(arcname))
+                            metadados["tamanho_total_bytes"] += subpath.stat().st_size
+            else:
+                logger.warning(f"⚠️ Componente não encontrado: {item}")
+
+    # Salva JSON com metadados
+    metadados_path = BACKUP_DIR / f"metadados_{data_str}_{TRACE_ID}.json"
+    with open(metadados_path, "w", encoding="utf-8") as f:
+        json.dump(metadados, f, indent=2)
+
+    logger.info(f"✅ Backup gerado: {caminho_zip.name} | Tamanho: {metadados['tamanho_total_bytes']} bytes")
+    logger.info(f"📋 Metadados salvos em: {metadados_path.name}")
+
+# === Execução CLI ===
+if __name__ == "__main__":
+    realizar_backup()

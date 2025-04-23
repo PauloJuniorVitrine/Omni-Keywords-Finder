@@ -1,0 +1,49 @@
+// /src/components/ui/Loader.jsx
+import clsx from "clsx";
+
+const sizeVariants = {
+  sm: "h-4 w-4 border-2",
+  md: "h-6 w-6 border-2",
+  lg: "h-8 w-8 border-4",
+};
+
+const colorVariants = {
+  primary: "border-blue-600",
+  danger: "border-red-600",
+  success: "border-green-600",
+  gray: "border-zinc-500",
+};
+
+const Loader = ({
+  size = "md",
+  color = "primary",
+  label = "Carregando...",
+  inline = true,
+  className = ""
+}) => {
+  return (
+    <div
+      className={clsx(
+        inline ? "inline-flex items-center" : "flex justify-center items-center w-full h-24",
+        className
+      )}
+      role="status"
+      aria-label={label}
+      data-testid="loader-component"
+    >
+      <span
+        className={clsx(
+          "animate-spin rounded-full border-t-transparent border-solid",
+          sizeVariants[size],
+          colorVariants[color]
+        )}
+      />
+      {label && inline && (
+        <span className="ml-2 text-sm text-zinc-600 dark:text-zinc-300">{label}</span>
+      )}
+      {!inline && <span className="sr-only">{label}</span>}
+    </div>
+  );
+};
+
+export default Loader;

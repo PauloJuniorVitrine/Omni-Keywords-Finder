@@ -1,0 +1,130 @@
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
+from database import SessionLocal
+from models import PalavraChave
+from auth import get_current_user
+import redis
+import logging
+import csv
+import io
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+
+# 🔍 Configuração de cache com Redis
+CACHE_ENABLED = True  # Alterar para False se não quiser usar cache
+redis_client = redis.Redis(host="localhost", port=6379, db=0) if CACHE_ENABLED else None
+
+# 📢 Configuração de Logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
+
+# 🚀 Configuração de Rate Limiting
+limiter = Limiter(key_func=get_remote_address)
+
+router = APIRouter(prefix="/palavras", tags=["Palavras-Chave"])
+
+# Dependência do banco de dados
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# 🔍 Cache Helper
+def get_cached_palavras():
+    if CACHE_ENABLED and redis_client.exists("palavras_cache"):
+        return redis_client.get("palavras_cache")
+    return None
+
+def set_cached_palavras(data):
+    if CACHE_ENABLED:
+        redis_client.setex("palavras_cache", 300, data)  # Expira em 5 min
+
+# 📌 Listar Palavras-Chave com Filtros, Paginação e Cache
+@router.get("/")
+@limiter.limit("10/minute")
+def listar_palavras(
+    skip: int = 0, 
+    limit: int = 10, 
+    min_volume: int = Query(None, description="Filtrar palavras com volume maior que este valor"),
+    max_volume: int = Query(None, description="Filtrar palavras com volume menor que este valor"),
+    ordenar_por: str = Query("criado_em", description="Campo para ordenação (criado_em, termo, volume_busca)"),
+    db: Session = Depends(get_db)):
+    
+    cached_palavras = get_cached_palavras()
+    if cached_palavras:
+        return cached_palavras  # Retorna do cache
+    
+    query = db.query(PalavraChave).filter(PalavraChave.ativo == True)
+    
+    if min_volume:
+        query = query.filter(PalavraChave.volume_busca >= min_volume)
+    if max_volume:
+        query = query.filter(PalavraChave.volume_busca <= max_volume)
+    
+    palavras = query.order_by(getattr(PalavraChave, ordenar_por).desc()).offset(skip).limit(limit).all()
+    set_cached_palavras(palavras)
+    return palavras
+
+# 📌 Criar Palavra-Chave (Protegido por JWT)
+@router.post("/", status_code=status.HTTP_201_CREATED)
+@limiter.limit("5/minute")
+def criar_palavra(termo: str, volume_busca: int, db: Session = Depends(get_db), usuario=Depends(get_current_user)):
+    if db.query(PalavraChave).filter(PalavraChave.termo == termo).first():
+        raise HTTPException(status_code=400, detail="Palavra-chave já existe")
+    
+    nova_palavra = PalavraChave(termo=termo, volume_busca=volume_busca, modificado_por=usuario["username"])
+    db.add(nova_palavra)
+    db.commit()
+    db.refresh(nova_palavra)
+    redis_client.delete("palavras_cache")  # Limpa cache
+    logging.info(f"🆕 Palavra-chave criada: {termo} por {usuario['username']}")
+    return nova_palavra
+
+# 📌 Atualizar Palavra-Chave (Protegido por JWT)
+@router.put("/{palavra_id}")
+@limiter.limit("5/minute")
+def atualizar_palavra(palavra_id: int, termo: str, volume_busca: int, db: Session = Depends(get_db), usuario=Depends(get_current_user)):
+    palavra = db.query(PalavraChave).filter(PalavraChave.id == palavra_id, PalavraChave.ativo == True).first()
+    if not palavra:
+        raise HTTPException(status_code=404, detail="Palavra-chave não encontrada")
+    
+    palavra.termo = termo
+    palavra.volume_busca = volume_busca
+    palavra.modificado_por = usuario["username"]
+    db.commit()
+    db.refresh(palavra)
+    redis_client.delete("palavras_cache")
+    logging.info(f"✏️ Palavra-chave atualizada: {termo} por {usuario['username']}")
+    return palavra
+
+# 📌 Deletar Palavra-Chave (Soft Delete)
+@router.delete("/{palavra_id}")
+@limiter.limit("5/minute")
+def deletar_palavra(palavra_id: int, db: Session = Depends(get_db), usuario=Depends(get_current_user)):
+    palavra = db.query(PalavraChave).filter(PalavraChave.id == palavra_id, PalavraChave.ativo == True).first()
+    if not palavra:
+        raise HTTPException(status_code=404, detail="Palavra-chave não encontrada")
+    
+    palavra.ativo = False
+    palavra.modificado_por = usuario["username"]
+    db.commit()
+    redis_client.delete("palavras_cache")
+    logging.warning(f"🗑️ Palavra-chave desativada: {palavra.termo} por {usuario['username']}")
+    return {"message": "Palavra-chave desativada"}
+
+# 📌 Exportar Palavras-Chave para CSV
+@router.get("/export")
+def exportar_palavras(db: Session = Depends(get_db)):
+    palavras = db.query(PalavraChave).filter(PalavraChave.ativo == True).all()
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["ID", "Termo", "Volume de Busca", "Criado Em"])
+    for palavra in palavras:
+        writer.writerow([palavra.id, palavra.termo, palavra.volume_busca, palavra.criado_em])
+    output.seek(0)
+    return StreamingResponse(output, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=palavras.csv"})

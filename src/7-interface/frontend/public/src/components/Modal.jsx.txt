@@ -1,0 +1,58 @@
+// /src/components/Modal.jsx
+import { useEffect, useRef, useId } from "react";
+
+const Modal = ({
+  isOpen,
+  onClose,
+  title = "",
+  children,
+  footer = null
+}) => {
+  const modalRef = useRef(null);
+  const modalId = useId();
+
+  useEffect(() => {
+    const escHandler = (e) => {
+      if (e.key === "Escape") onClose?.();
+    };
+    if (isOpen) {
+      window.addEventListener("keydown", escHandler);
+      setTimeout(() => modalRef.current?.focus(), 0);
+    }
+    return () => window.removeEventListener("keydown", escHandler);
+  }, [isOpen, onClose]);
+
+  const handleOverlayClick = (e) => {
+    if (e.target === e.currentTarget) onClose?.();
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div
+      onClick={handleOverlayClick}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={`modal-title-${modalId}`}
+      id="modal-root"
+      tabIndex={-1}
+      ref={modalRef}
+    >
+      <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-xl max-w-lg w-full p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h2 id={`modal-title-${modalId}`} className="text-lg font-semibold text-zinc-900 dark:text-white">
+            {title}
+          </h2>
+          <button onClick={onClose} className="text-zinc-500 hover:text-red-500" aria-label="Fechar modal">
+            &times;
+          </button>
+        </div>
+        <div>{children}</div>
+        {footer && <div className="mt-6">{footer}</div>}
+      </div>
+    </div>
+  );
+};
+
+export default Modal;

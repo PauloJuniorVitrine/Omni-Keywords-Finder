@@ -1,0 +1,145 @@
+# PROMPT ULTRA-COMPLETO PARA TESTES DE CARGA
+
+<details>
+<summary>📌 **Sumário Técnico**</summary>
+
+1. [Objetivos Estratégicos](#-objetivos-estratégicos)
+2. [Métricas-Chave](#-métricas-chave)
+3. [Técnicas Essenciais](#-técnicas-essenciais)
+4. [Configurações Avançadas](#%EF%B8%8F-configurações-avançadas)
+5. [Monitoramento Profundo](#-monitoramento-profundo)
+6. [Cenários Complexos](#-cenários-complexos)
+7. [Template de Relatório](#-template-de-relatório)
+8. [Checklist e Segurança](#-checklist-e-segurança)
+</details>
+
+## 🎯 Objetivos Estratégicos
+| ID  | Objetivo                          | KPIs Associados                  |
+|-----|-----------------------------------|----------------------------------|
+| 1.1 | Identificar gargalos              | Throughput, Error Rate           |
+| 1.2 | Determinar capacidade máxima      | Max RPS, Resource Utilization    |
+| 1.3 | Validar SLAs                      | p95 Latency, Uptime              |
+| 1.4 | Testar auto-scaling               | Scaling Events, Recovery Time    |
+| 1.5 | Simular tráfego real              | Traffic Pattern Matching         |
+
+## 📊 Métricas-Chave
+```python
+# Exemplo de coleta automatizada
+metrics = {
+    "performance": {
+        "rps": {"target": ">1500", "tool": "k6"},
+        "latency": {
+            "p50": "<200ms",
+            "p95": "<500ms",
+            "p99": "<1s"
+        }
+    },
+    "infra": {
+        "cpu": {"warning": ">70%", "critical": ">90%"},
+        "memory": {"warning": ">75%", "critical": ">90%"}
+    }
+}
+
+🛠 Técnicas Essenciais
+1. Teste de Pico (Spike Testing)
+
+// k6 - Exemplo avançado
+import { Trend } from 'k6/metrics';
+
+const spikeDuration = '5m';
+const stages = [
+    { duration: '2m', target: 1000 },  // Ramp-up
+    { duration: spikeDuration, target: 5000 },  // Spike
+    { duration: '10m', target: 0 }     // Recovery
+];
+
+export const options = {
+    stages,
+    thresholds: {
+        http_req_duration: ['p95<500ms'],
+        http_req_failed: ['rate<0.01']
+    }
+};
+
+2. Teste de Resistência (Soak Test)
+
+# Locust - Cenário prolongado
+class UserBehavior(TaskSet):
+    @task(3) 
+    def browse_products(self):
+        self.client.get("/catalog", timeout=10)
+    
+    @task(1)
+    def checkout(self):
+        self.client.post("/order", json=order_data)
+
+# Executar por 24h com:
+# - 500 usuários constantes
+# - Taxa de falha < 0.5%
+
+⚙️ Configurações Avançadas
+
+# config/load-profile.yml
+scenarios:
+  ecommerce_peak:
+    stages:
+      - time: "09:00-12:00"
+        users: 2000
+        spawn_rate: 100/min
+        actions:
+          - browse: 60%
+          - search: 25%
+          - checkout: 15%
+    
+  background_load:
+    base_load: 500
+    variation: ±20%
+
+def test_full_stack_load():
+    with (
+        K6_Executor(vus=2000),
+        Prometheus_Monitor(),
+        Chaos_Injector(failure_rate=0.1)
+    ):
+        # 1. Carga inicial
+        run_scenario("browse_flow", duration="10m")
+        
+        # 2. Adiciona caos
+        inject_failures(
+            target="payment_service",
+            modes=["latency", "errors"],
+            duration="5m"
+        )
+        
+        # 3. Verifica resiliência
+        assert get_metric('checkout_success_rate') > 95
+        assert not is_cascading_failure()
+
+## Relatório Consolidado - {{date}}
+
+### Sumário Executivo
+```python
+{
+    "test_duration": "6h",
+    "sla_compliance": 98.7,
+    "critical_findings": [
+        "DB CPU @ 92% durante pico",
+        "Cache miss rate > 40%"
+    ]
+}
+
+
+## 🚨 Checklist e Segurança
+### Pré-Teste
+- [ ] Backup completo do ambiente
+- [ ] Limites de auto-scaling ajustados
+- [ ] Equipe de plantão notificada
+
+### Emergências
+| Sintoma                | Ação Imediata               | Contramedida Longo Prazo         |
+|------------------------|-----------------------------|----------------------------------|
+| Latência p95 > 1s      | Reduzir carga em 50%        | Implementar cache L2             |
+| Error rate > 5%        | Pausar teste                | Revisar circuit breakers         |
+| CPU > 95% por 5min     | Escalonar manualmente       | Otimizar queries custosas        |
+
+# FIM DO PROMPT

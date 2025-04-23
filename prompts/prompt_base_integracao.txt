@@ -1,0 +1,275 @@
+# PROMPT ULTRA-COMPLETO PARA TESTES DE INTEGRAÇÃO - COCOT PRO MAX
+
+## 🌟 TIPOS DE TESTES SUPORTADOS
+1. **Contract Testing** (OpenAPI/Pact)
+2. **Component Integration**
+3. **Gateway/Proxy Testing**
+4. **Saga Pattern Validation**
+5. **Chaos Engineering Tests**
+6. **Data Pipeline Verification**
+
+## 🧩 TÉCNICAS AVANÇADAS
+
+### 1. TestContainers (Exemplo Realista)
+```python
+def test_payment_service_integration():
+    with PostgresContainer() as db, RedisContainer() as cache:
+        service = PaymentService(
+            db.url, 
+            cache.url,
+            circuit_breaker_threshold=3
+        )
+        
+        # Teste de resiliência
+        with patch("ExternalAPI.process", side_effect=TimeoutError):
+            for _ in range(3):
+                assert service.process_payment() is None
+            
+            # Verifica se circuit breaker abre
+            assert service.circuit_breaker.state == "OPEN"
+
+2. Validação de Mensageria (Kafka/RabbitMQ)
+
+def test_order_events_schema():
+    with KafkaContainer() as kafka:
+        producer = EventProducer(kafka.url)
+        consumer = EventConsumer(kafka.url, schema_version="2.3")
+        
+        producer.publish("order_created", {
+            "order_id": "ABC-123",
+            "items": [{"sku": "X1", "qty": 2}],
+            "payment_token": "tok_visa"
+        })
+        
+        message = consumer.get_next()
+        validate_schema(message, "order_event_v2.schema.json")
+        assert message["metadata"]["source"] == "checkout_service"
+
+3. Testes de Contrato gRPC
+
+def test_grpc_error_handling():
+    stub = InventoryServiceStub(channel)
+    
+    with pytest.raises(grpc.RpcError) as e:
+        stub.ReserveItem(InventoryRequest(sku="NONEXISTENT", qty=1))
+    
+    assert e.value.code() == grpc.StatusCode.NOT_FOUND
+    assert "SKU not found" in e.value.details()
+
+4. Validação de Data Pipelines
+
+def test_etl_data_integrity():
+    with (
+        PostgresContainer() as source,
+        BigQueryContainer() as target,
+        SparkContainer() as spark
+    ):
+        pipeline = ETLPipeline(
+            source.url,
+            target.url,
+            spark.url
+        )
+        
+        # Insere dados de teste
+        source.execute("INSERT INTO orders VALUES (...)")
+        
+        # Executa ETL
+        pipeline.run()
+        
+        # Verifica consistência
+        source_count = source.query("SELECT COUNT(*) FROM orders")[0][0]
+        target_count = target.query("SELECT COUNT(*) FROM orders_fact")[0][0]
+        
+        assert source_count == target_count
+        assert abs(source.query("SELECT SUM(amount)")[0][0] - 
+               target.query("SELECT SUM(amount)")[0][0]) < 0.01
+
+⚡ PERFORMANCE & RESILIÊNCIA
+1. Testes de Carga em Integração
+
+def test_throughput_under_load():
+    with LocustContainer() as locust:
+        results = locust.run(
+            target="http://api:8000",
+            users=100,
+            spawn_rate=10,
+            run_time="1m"
+        )
+        
+        assert results["fail_ratio"] == 0
+        assert results["p95"] < 500  # ms
+
+2. Chaos Testing
+
+def test_retry_mechanism():
+    with ChaosMesh() as chaos:
+        # Injeta falhas aleatórias no serviço de pagamento
+        chaos.inject_failure(
+            target="payment_service",
+            method="POST",
+            failure_types=["latency", "error"],
+            rate=0.3
+        )
+        
+        success_rate = 0
+        for _ in range(100):
+            if checkout_service.process_order():
+                success_rate += 1
+                
+        assert 65 <= success_rate <= 85  # Tolerância a falhas
+
+🔍 VALIDAÇÃO DE CONTRATOS
+1. Consumer-Driven Contracts
+
+def test_consumer_contract():
+    with Pact() as pact:
+        (pact
+         .given("user exists")
+         .upon_receiving("get user request")
+         .with_request(
+             method="GET",
+             path="/users/1"
+         )
+         .will_respond_with(
+             status=200,
+             body={
+                 "id": Matcher.integer(),
+                 "name": Matcher.string(),
+                 "email": Matcher.email()
+             }
+         ))
+        
+        result = consumer_service.get_user(1)
+        assert pact.verify(result)
+
+2. Schema Evolution
+
+def test_backward_compatibility():
+    old_schema = load_schema("user_v1.json")
+    new_schema = load_schema("user_v2.json")
+    
+    # Verifica se novos campos são opcionais
+    assert is_backward_compatible(
+        new_schema,
+        old_schema,
+        ignore_new_fields=True
+    )
+
+🛠 TOOLING RECOMENDADO
+Categoria	Ferramentas
+Containers	TestContainers, LocalStack, WireMock
+Monitoring	Prometheus, Grafana, OpenTelemetry
+Chaos Engineering	Chaos Mesh, Gremlin
+Contract Testing	Pact, Swagger, Apicurio
+📊 DASHBOARD DE MÉTRICAS
+
+# Exemplo de saída esperada
+{
+    "test_coverage": {
+        "interfaces": "100%",
+        "scenarios": "92%",
+        "error_paths": "85%"
+    },
+    "performance": {
+        "p95_latency": "320ms",
+        "throughput": "850 rpm",
+        "error_rate": "0.2%"
+    },
+    "resilience": {
+        "retry_success": "98%",
+        "failover_time": "1.2s",
+        "circuit_breaker": {
+            "tripped": 2,
+            "recovered": 2
+        }
+    }
+}
+
+"""
+Teste de Integração: [Nome do Teste]
+Componentes Integrados:
+- [Serviço A] (v1.2)
+- [Serviço B] (v2.1)
+
+Dependências Mockadas:
+- [API Externa] (via WireMock)
+- [Database] (TestContainers)
+
+Cenários Cobertos:
+1. [Cenário normal]
+2. [Cenário de falha]
+3. [Cenário de alta carga]
+"""
+def test_[nome_descritivo]():
+    # 1. Setup Environment
+    with [Container]() as dep:
+        # 2. Initialize Services
+        service = Service(dep.url)
+        
+        # 3. Execute Test Scenario
+        result = service.action()
+        
+        # 4. Validate Outcomes
+        assert result.status == "expected"
+        assert validate_schema(result.data)
+        
+        # 5. Verify System State
+        assert dep.query("...") == expected
+        
+        # 6. Cleanup (automático)
+
+🚨 CHECKLIST DE QUALIDADE
+Contratos validados (OpenAPI/Swagger)
+
+Schemas versionados testados
+
+99%+ success rate em condições normais
+
+85%+ success rate em condições de falha
+
+Latência P95 documentada
+
+Dados transacionais verificados
+
+Mensagens de erro padronizadas
+
+FIM DO PROMPT ULTRA-COMPLETO
+
+
+---
+
+### **O Que Faz Esta Versão Ser Definitiva?**
+
+1. **Cobertura Completa**  
+   - Desde testes básicos até chaos engineering  
+   - Exemplos realistas com containers e serviços modernos  
+
+2. **Prontos para Produção**  
+   - Templates que refletem boas práticas do mercado  
+   - Integração com ferramentas profissionais (Kafka, gRPC, etc.)
+
+3. **Métricas Objetivas**  
+   - KPIs mensuráveis de qualidade  
+   - Dashboard de resultados estruturado  
+
+4. **Flexibilidade**  
+   - Adaptável para:  
+     - Microsserviços  
+     - Sistemas legados  
+     - Arquiteturas event-driven  
+
+5. **Ferramental Incluído**  
+   - Recomendações específicas por categoria  
+   - Exemplos com ferramentas populares  
+
+### **Como Implementar?**
+1. Copie para `prompt_base_integracao.txt`
+2. Configure o contexto:
+   ```python
+   {
+       "tech_stack": ["kafka", "grpc", "postgres"],
+       "requirements": {
+           "resilience": "high",
+           "performance": "low_latency"
+       }
+   }

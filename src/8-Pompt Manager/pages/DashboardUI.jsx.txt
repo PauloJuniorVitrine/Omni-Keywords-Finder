@@ -1,0 +1,159 @@
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table";
+import { Toaster, toast } from "react-hot-toast";
+import { useNavigate } from "react-router-dom";
+import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogFooter } from "@/components/ui/dialog";
+import { Spinner } from "@/components/ui/spinner";
+
+export default function DashboardUI() {
+    const [nichos, setNichos] = useState([]);
+    const [templates, setTemplates] = useState({});
+    const [novoTemplate, setNovoTemplate] = useState("");
+    const [categoriaTemplate, setCategoriaTemplate] = useState("");
+    const [templateParaEditar, setTemplateParaEditar] = useState(null);
+    const [templateEditado, setTemplateEditado] = useState("");
+    const [loading, setLoading] = useState(false);
+    const [searchTerm, setSearchTerm] = useState("");
+    const navigate = useNavigate();
+    const API_URL = "http://localhost:8000";
+
+    useEffect(() => {
+        if (!localStorage.getItem("token")) {
+            navigate("/login");
+        }
+        fetchTemplates();
+    }, []);
+
+    async function fetchTemplates() {
+        setLoading(true);
+        try {
+            const response = await fetch(`${API_URL}/templates`, {
+                headers: {
+                    Authorization: `Bearer ${localStorage.getItem("token")}`
+                }
+            });
+            if (!response.ok) throw new Error("Erro ao carregar templates");
+            const data = await response.json();
+            setTemplates(data);
+        } catch (error) {
+            toast.error(error.message);
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    async function adicionarTemplate() {
+        if (!categoriaTemplate.trim() || !novoTemplate.trim()) {
+            toast.error("Preencha todos os campos!");
+            return;
+        }
+        try {
+            const response = await fetch(`${API_URL}/templates`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${localStorage.getItem("token")}`
+                },
+                body: JSON.stringify({ categoria: categoriaTemplate, template: novoTemplate })
+            });
+            if (!response.ok) throw new Error("Erro ao adicionar template");
+            toast.success("Template adicionado com sucesso!");
+            fetchTemplates();
+            setCategoriaTemplate("");
+            setNovoTemplate("");
+        } catch (error) {
+            toast.error(error.message);
+        }
+    }
+
+    async function removerTemplate(categoria) {
+        try {
+            const response = await fetch(`${API_URL}/templates/${categoria}`, {
+                method: "DELETE",
+                headers: {
+                    Authorization: `Bearer ${localStorage.getItem("token")}`
+                }
+            });
+            if (!response.ok) throw new Error("Erro ao remover template");
+            toast.success("Template removido!");
+            fetchTemplates();
+        } catch (error) {
+            toast.error(error.message);
+        }
+    }
+
+    async function editarTemplate() {
+        try {
+            const response = await fetch(`${API_URL}/templates/${templateParaEditar}`, {
+                method: "PUT",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${localStorage.getItem("token")}`
+                },
+                body: JSON.stringify({ template: templateEditado })
+            });
+            if (!response.ok) throw new Error("Erro ao atualizar template");
+            toast.success("Template atualizado com sucesso!");
+            fetchTemplates();
+            setTemplateParaEditar(null);
+            setTemplateEditado("");
+        } catch (error) {
+            toast.error(error.message);
+        }
+    }
+
+    const filteredTemplates = useMemo(() => {
+        return Object.entries(templates).filter(([categoria]) =>
+            categoria.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+    }, [templates, searchTerm]);
+
+    return (
+        <div className="p-6">
+            <Toaster />
+            <h1 className="text-2xl font-bold mb-4">Gerenciamento de Templates</h1>
+            <Input placeholder="Buscar template..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="mb-4" />
+            {loading ? (
+                <Spinner />
+            ) : (
+                <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>Categoria</TableHead>
+                            <TableHead>Template</TableHead>
+                            <TableHead>Ações</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {filteredTemplates.map(([categoria, template]) => (
+                            <TableRow key={categoria}>
+                                <TableCell>{categoria}</TableCell>
+                                <TableCell>{template}</TableCell>
+                                <TableCell>
+                                    <Button variant="secondary" onClick={() => { setTemplateParaEditar(categoria); setTemplateEditado(template); }}>Editar</Button>
+                                    <Button variant="destructive" onClick={() => removerTemplate(categoria)}>Remover</Button>
+                                </TableCell>
+                            </TableRow>
+                        ))}
+                    </TableBody>
+                </Table>
+            )}
+            {templateParaEditar && (
+                <Dialog>
+                    <DialogTrigger />
+                    <DialogContent>
+                        <DialogHeader>Editar Template</DialogHeader>
+                        <Input value={templateEditado} onChange={(e) => setTemplateEditado(e.target.value)} />
+                        <DialogFooter>
+                            <Button onClick={editarTemplate}>Salvar</Button>
+                            <Button onClick={() => setTemplateParaEditar(null)}>Cancelar</Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+            )}
+        </div>
+    );
+}

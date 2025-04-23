@@ -1,0 +1,136 @@
+from fastapi import APIRouter, Depends, HTTPException, status, WebSocket, WebSocketDisconnect, Query
+from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
+from database import SessionLocal
+from auth import get_current_user
+import logging
+import psutil
+import time
+import shutil
+import io
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+import pytest
+
+# 📢 Configuração de Logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
+
+# 🚀 Configuração de Rate Limiting
+limiter = Limiter(key_func=get_remote_address)
+
+router = APIRouter(prefix="/system", tags=["Sistema"])
+
+# Dependência do banco de dados
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# 📡 Monitoramento em Tempo Real com WebSockets
+active_connections = []
+
+@router.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    active_connections.append(websocket)
+    try:
+        while True:
+            status_info = {
+                "cpu": psutil.cpu_percent(),
+                "memoria": psutil.virtual_memory().percent
+            }
+            await websocket.send_json(status_info)
+            time.sleep(5)  # Atualiza a cada 5 segundos
+    except WebSocketDisconnect:
+        active_connections.remove(websocket)
+        logging.info("🔌 Cliente desconectado do WebSocket")
+
+# 📌 Verificação de Status do Sistema com Métricas
+@router.get("/status")
+@limiter.limit("5/minute")
+def verificar_status(db: Session = Depends(get_db)):
+    try:
+        db.execute("SELECT 1")  # Testa conexão com o banco
+        uso_cpu = psutil.cpu_percent()
+        uso_memoria = psutil.virtual_memory().percent
+        logging.info(f"📊 Status do sistema verificado - CPU: {uso_cpu}% | Memória: {uso_memoria}%")
+        return {"status": "OK", "cpu": uso_cpu, "memoria": uso_memoria}
+    except Exception as e:
+        logging.error("❌ Erro ao verificar status do sistema", exc_info=True)
+        raise HTTPException(status_code=500, detail="Erro ao verificar status do sistema")
+
+# 📌 Listar Logs do Sistema com Busca e Filtros
+@router.get("/logs")
+@limiter.limit("5/minute")
+def listar_logs(
+    usuario=Depends(get_current_user),
+    query: str = Query(None, description="Filtrar logs contendo essa palavra"),
+    db: Session = Depends(get_db)
+):
+    if usuario["role"] != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
+    
+    try:
+        with open("app.log", "r") as log_file:
+            logs = log_file.readlines()
+        
+        if query:
+            logs = [log for log in logs if query.lower() in log.lower()]
+        
+        return {"logs": logs[-50:]}  # Retorna as últimas 50 linhas filtradas
+    except FileNotFoundError:
+        return {"message": "Nenhum log disponível"}
+
+# 📤 Exportar Logs para Arquivo
+@router.get("/logs/export")
+def exportar_logs(usuario=Depends(get_current_user)):
+    if usuario["role"] != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
+    
+    try:
+        with open("app.log", "r") as log_file:
+            logs = log_file.readlines()
+        output = io.StringIO()
+        output.writelines(logs)
+        output.seek(0)
+        return StreamingResponse(output, media_type="text/plain", headers={"Content-Disposition": "attachment; filename=logs.txt"})
+    except FileNotFoundError:
+        return {"message": "Nenhum log disponível para exportação"}
+
+# 🔄 Backup Automático Antes da Exclusão de Logs
+@router.delete("/logs")
+@limiter.limit("3/minute")
+def excluir_logs(confirmacao: bool, usuario=Depends(get_current_user)):
+    if usuario["role"] != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
+    
+    if not confirmacao:
+        return {"message": "Confirmação necessária para excluir logs"}
+    
+    try:
+        shutil.copy("app.log", "logs_backup.txt")  # Faz um backup antes de excluir
+        open("app.log", "w").close()  # Limpa o arquivo de log
+        logging.warning("🗑️ Logs do sistema foram excluídos por um administrador")
+        return {"message": "Logs excluídos com sucesso"}
+    except Exception as e:
+        logging.error("❌ Erro ao excluir logs", exc_info=True)
+        raise HTTPException(status_code=500, detail="Erro ao excluir logs")
+
+# 🔬 Testes Automatizados com `pytest`
+@pytest.fixture
+def client():
+    from fastapi.testclient import TestClient
+    return TestClient(router)
+
+@pytest.mark.parametrize("endpoint, expected_status", [
+    ("/status", 200),
+    ("/logs", 403),
+])
+def test_endpoints(client, endpoint, expected_status):
+    response = client.get(endpoint)
+    assert response.status_code == expected_status

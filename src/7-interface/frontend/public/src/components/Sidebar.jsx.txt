@@ -1,0 +1,49 @@
+// /src/components/Sidebar.jsx
+import { useState } from "react";
+import { NavLink } from "react-router-dom";
+import { Menu } from "lucide-react";
+import { navItems } from "@/config/navItems";
+import SidebarLogo from "@/components/branding/SidebarLogo";
+
+const Sidebar = () => {
+  const [isOpen, setIsOpen] = useState(true);
+
+  return (
+    <>
+      {/* Botão de toggle para mobile */}
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="md:hidden p-2 m-2 text-zinc-700 dark:text-zinc-300"
+        aria-label="Alternar menu lateral"
+      >
+        <Menu />
+      </button>
+
+      {isOpen && (
+        <aside className="w-60 h-screen bg-white dark:bg-zinc-900 shadow-md p-4 flex-col gap-2 hidden md:flex">
+          <SidebarLogo />
+          {navItems.map(({ to, label, icon: Icon }) => (
+            <NavLink
+              key={to}
+              to={to}
+              className={({ isActive }) =>
+                `flex items-center gap-2 px-3 py-2 rounded-md font-medium text-sm transition-colors ${
+                  isActive
+                  ? "bg-blue-100 text-blue-800 dark:bg-zinc-800 dark:text-blue-400"
+                  : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                }`
+              }
+              aria-label={`Ir para ${label}`}
+              aria-current={({ isActive }) => (isActive ? "page" : undefined)}
+            >
+              <Icon size={18} />
+              {label}
+            </NavLink>
+          ))}
+        </aside>
+      )}
+    </>
+  );
+};
+
+export default Sidebar;

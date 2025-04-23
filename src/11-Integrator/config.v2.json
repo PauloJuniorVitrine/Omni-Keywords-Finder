@@ -1,0 +1,117 @@
+{
+  "threads": 10,
+  "timeout": 60,
+  "use_cache": true,
+  "retry_on_fail": true,
+  "log_level": "INFO",
+  "log_rotation_days": 14,
+  "logging": {
+    "global_level": "INFO",
+    "modules": {
+      "api": "DEBUG",
+      "database": "WARNING",
+      "ml": "ERROR",
+      "scheduler": "INFO",
+      "prompt_manager": "DEBUG"
+    }
+  },
+  "databases": {
+    "default": "sqlite",
+    "connections": {
+      "sqlite": {
+        "path": "./data/system_data.db"
+      },
+      "postgresql": {
+        "host": "localhost",
+        "port": 5432,
+        "username": "user",
+        "password": "pass",
+        "dbname": "omni"
+      },
+      "mysql": {
+        "host": "localhost",
+        "port": 3306,
+        "username": "user",
+        "password": "pass",
+        "dbname": "omni"
+      }
+    }
+  },
+  "features": {
+    "enable_prompt_manager": {
+      "enabled": true,
+      "rollout": 100
+    },
+    "enable_google_trends": {
+      "enabled": true,
+      "rollout": 100
+    },
+    "enable_social_api": {
+      "enabled": true,
+      "rollout": 50
+    },
+    "enable_zip_export": {
+      "enabled": true,
+      "rollout": 100
+    }
+  },
+  "prompt_engine": {
+    "template_path": "./templates",
+    "placeholders": [
+      "{palavra_primaria}",
+      "{palavra_secundaria}"
+    ],
+    "default_language": "pt-BR",
+    "cluster_depth": 3
+  },
+  "scheduler": {
+    "enabled": true,
+    "daily_window": "02:00-04:00",
+    "modules": {
+      "coletor": "02:10",
+      "validador": "02:30",
+      "prompt_generator": "03:00",
+      "exportador": "03:30"
+    }
+  },
+  "metrics": {
+    "enabled": true,
+    "provider": "prometheus",
+    "port": 9100
+  },
+  "api_rate_limit": {
+    "enabled": true,
+    "requests_per_minute": 200
+  },
+  "i18n": {
+    "default_locale": "pt-BR",
+    "fallback_locale": "en-US",
+    "available_locales": [
+      "pt-BR",
+      "en-US",
+      "es-ES"
+    ]
+  },
+  "auth": {
+    "jwt_expiration_minutes": 60,
+    "oauth_providers": {
+      "google": {
+        "client_id": "your_google_client_id",
+        "client_secret": "your_google_client_secret"
+      }
+    }
+  },
+  "integrations": {
+    "notion": {
+      "enabled": false,
+      "api_key": "",
+      "database_id": ""
+    },
+    "wordpress": {
+      "enabled": false,
+      "url": "",
+      "username": "",
+      "application_password": ""
+    }
+  }
+}

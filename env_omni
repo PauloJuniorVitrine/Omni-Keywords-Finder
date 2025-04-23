@@ -1,0 +1,16 @@
+# Variáveis de ambiente para execução completa do sistema Omni
+
+# OpenAI
+OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+OPENAI_MODEL=gpt-4o
+ENABLE_GPT4O_AUDIT=true
+GPT4O_PROMPT_FILE=prompts/Super_Prompt_Auditor.txt
+
+# Slack (opcional)
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/EXAMPLE/KEY/STRING
+
+# Ambiente GitHub Actions (simulação local opcional)
+GITHUB_WORKSPACE=/home/runner/work/Omni-Keywords-Finder
+
+# Logs e Diagnósticos
+LOG_PATH=relatorios/log_refatorador.txt

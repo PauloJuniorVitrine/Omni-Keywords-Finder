@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block content %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+<div class="container mt-4">
+  <h2 class="mb-4">➕ Criar Novo Template</h2>
+
+  <form action="/admin/templates/novo" method="post" novalidate>
+    <div class="mb-3">
+      <label for="nome" class="form-label">Nome do Template</label>
+      <input type="text" class="form-control" id="nome" name="nome" required>
+      <div class="form-text text-danger d-none">Campo obrigatório</div>
+    </div>
+
+    <div class="mb-3">
+      <label for="nicho" class="form-label">Nicho</label>
+      <input type="text" class="form-control" id="nicho" name="nicho" required>
+      <div class="form-text text-danger d-none">Campo obrigatório</div>
+    </div>
+
+    <div class="mb-3">
+      <label for="categoria" class="form-label">Categoria (Dia da Semana)</label>
+      <select class="form-select" id="categoria" name="categoria" required>
+        {% for cat in categorias %}
+          <option value="{{ cat.name }}">{{ cat.value }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="mb-3">
+      <label for="tipo_template" class="form-label">Tipo de Template</label>
+      <input list="tipos" class="form-control" id="tipo_template" name="tipo_template" placeholder="Ex: post, email, video" value="geral">
+      <datalist id="tipos">
+        <option value="post">
+        <option value="email">
+        <option value="video">
+        <option value="artigo">
+        <option value="reel">
+      </datalist>
+    </div>
+
+    <div class="mb-3">
+      <label for="descricao" class="form-label">Descrição (opcional)</label>
+      <input type="text" class="form-control" id="descricao" name="descricao" maxlength="500">
+      <div class="form-text">Máximo de 500 caracteres</div>
+    </div>
+
+    <div class="mb-3">
+      <label for="modelo_texto" class="form-label">Modelo de Texto</label>
+      <textarea class="form-control" id="modelo_texto" name="modelo_texto" rows="10" placeholder="Insira o prompt com {{palavra_chave}}..." required minlength="10" maxlength="10000"></textarea>
+      <div class="form-text">Use <code>{{palavra_chave}}</code> para indicar onde a palavra-chave será inserida.</div>
+      <div class="form-text text-muted"><span id="charCount">0</span>/10000 caracteres</div>
+    </div>
+
+    <div class="d-flex justify-content-between">
+      <a href="/admin/templates" class="btn btn-secondary">⬅ Voltar</a>
+      <button type="submit" class="btn btn-primary">💾 Salvar Template</button>
+    </div>
+  </form>
+</div>
+
+<script>
+  const modeloTexto = document.getElementById("modelo_texto");
+  const charCount = document.getElementById("charCount");
+  modeloTexto.addEventListener("input", () => {
+    charCount.textContent = modeloTexto.value.length;
+  });
+</script>
+{% endblock %}

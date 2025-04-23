@@ -1,0 +1,77 @@
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, Text, func, CheckConstraint, Index
+from sqlalchemy.orm import relationship
+from sqlalchemy_utils import EncryptedType
+from database import Base
+import os
+
+SECRET_KEY = os.getenv("SECRET_KEY", "minha_chave_super_secreta")
+
+# 📌 Modelo de Usuário (Novo para controle de acesso)
+class Usuario(Base):
+    __tablename__ = "usuarios"
+    id = Column(Integer, primary_key=True, index=True)
+    nome = Column(String(100), nullable=False)
+    email = Column(String(150), unique=True, nullable=False)
+    senha_hash = Column(EncryptedType(String, SECRET_KEY), nullable=False)  # 🔐 Senha criptografada
+    ativo = Column(Boolean, default=True)
+    criado_em = Column(DateTime, default=func.now())
+    modificado_em = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    logs = relationship("LogSistema", back_populates="usuario")
+
+# 📌 Modelo de Nicho
+class Nicho(Base):
+    __tablename__ = "nichos"
+    id = Column(Integer, primary_key=True, index=True)
+    nome = Column(String(100), unique=True, nullable=False)
+    ativo = Column(Boolean, default=True)  # Soft Delete
+    criado_em = Column(DateTime, default=func.now())
+    modificado_em = Column(DateTime, default=func.now(), onupdate=func.now())
+    modificado_por = Column(String(100))
+    
+    palavras_chave = relationship("PalavraChave", back_populates="nicho", cascade="all, delete")
+    
+    __table_args__ = (Index("idx_nicho_nome", "nome"),)  # 🔍 Índice para busca rápida
+
+# 📌 Modelo de Palavra-chave
+class PalavraChave(Base):
+    __tablename__ = "palavras_chave"
+    id = Column(Integer, primary_key=True, index=True)
+    termo = Column(String(150), unique=True, nullable=False)
+    volume_busca = Column(Integer, nullable=False, default=0)
+    nicho_id = Column(Integer, ForeignKey("nichos.id"))
+    ativo = Column(Boolean, default=True)  # Soft Delete
+    criado_em = Column(DateTime, default=func.now())
+    modificado_em = Column(DateTime, default=func.now(), onupdate=func.now())
+    modificado_por = Column(String(100))
+    
+    nicho = relationship("Nicho", back_populates="palavras_chave")
+
+    __table_args__ = (
+        CheckConstraint("volume_busca >= 0", name="volume_busca_nao_negativo"),
+        Index("idx_palavra_termo", "termo"),  # 🔍 Índice para busca otimizada
+    )
+
+# 📌 Modelo de Template de E-mail
+class TemplateEmail(Base):
+    __tablename__ = "templates_email"
+    id = Column(Integer, primary_key=True, index=True)
+    titulo = Column(String(255), nullable=False)
+    conteudo = Column(Text, nullable=False)
+    ativo = Column(Boolean, default=True)  # Soft Delete
+    criado_em = Column(DateTime, default=func.now())
+    modificado_em = Column(DateTime, default=func.now(), onupdate=func.now())
+    modificado_por = Column(String(100))
+
+# 📌 Modelo de Log do Sistema
+class LogSistema(Base):
+    __tablename__ = "logs_sistema"
+    id = Column(Integer, primary_key=True, index=True)
+    usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)  # 🔗 Associado ao usuário que realizou a ação
+    acao = Column(String(255), nullable=False)
+    detalhes = Column(Text, nullable=True)
+    criado_em = Column(DateTime, default=func.now())
+
+    usuario = relationship("Usuario", back_populates="logs")
+    
+    __table_args__ = (Index("idx_log_usuario", "usuario_id"),)  # 🔍 Índice para auditoria otimizada

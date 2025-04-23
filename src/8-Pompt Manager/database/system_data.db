@@ -1,0 +1,75 @@
+import sqlite3
+
+DATABASE_PATH = "database/system_data.db"
+
+# Criar banco de dados e tabelas se não existirem
+def criar_tabelas():
+    with sqlite3.connect(DATABASE_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.executescript("""
+            CREATE TABLE IF NOT EXISTS nichos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nome TEXT UNIQUE NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS categorias (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nome TEXT NOT NULL,
+                nicho_id INTEGER NOT NULL,
+                dia_semana TEXT NOT NULL,
+                FOREIGN KEY (nicho_id) REFERENCES nichos (id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS palavras_usadas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                palavra TEXT NOT NULL,
+                nicho TEXT NOT NULL,
+                categoria TEXT NOT NULL,
+                data_uso TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS palavras_ranking (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                palavra TEXT UNIQUE NOT NULL,
+                frequencia INTEGER DEFAULT 0,
+                desempenho REAL DEFAULT 0.0,
+                ultima_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        conn.commit()
+
+def adicionar_nicho(nome):
+    with sqlite3.connect(DATABASE_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO nichos (nome) VALUES (?)", (nome,))
+        conn.commit()
+
+def adicionar_categoria(nome, nicho_id, dia_semana):
+    with sqlite3.connect(DATABASE_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO categorias (nome, nicho_id, dia_semana) VALUES (?, ?, ?)",
+            (nome, nicho_id, dia_semana)
+        )
+        conn.commit()
+
+def registrar_palavras(nicho, categoria, palavras):
+    with sqlite3.connect(DATABASE_PATH) as conn:
+        cursor = conn.cursor()
+        for palavra in palavras:
+            cursor.execute("""
+                INSERT INTO palavras_usadas (palavra, nicho, categoria)
+                VALUES (?, ?, ?)
+            """, (palavra, nicho, categoria))
+        conn.commit()
+
+def registrar_palavras_ranking(palavras):
+    with sqlite3.connect(DATABASE_PATH) as conn:
+        cursor = conn.cursor()
+        for palavra in palavras:
+            cursor.execute("""
+                INSERT INTO palavras_ranking (palavra, frequencia, ultima_atualizacao) 
+                VALUES (?, 1, CURRENT_TIMESTAMP) 
+                ON CONFLICT(palavra) DO UPDATE SET frequencia = frequencia + 1, ultima_atualizacao = CURRENT_TIMESTAMP
+            """, (palavra,))
+        conn.commit()
+
+if __name__ == "__main__":
+    criar_tabelas()

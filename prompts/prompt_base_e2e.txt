@@ -1,0 +1,150 @@
+# PROMPT AVANÇADO PARA TESTES E2E - COCOT ULTRA 2025
+
+## 🚀 Visão Estratégica
+**Objetivo Primário**:  
+Validar o sistema como um **produto finalizado**, simulando jornadas reais de usuários com **98% de fidelidade** aos cenários de produção.
+
+## 🌐 Arquitetura de Teste
+```mermaid
+graph LR
+    A[UI/CLI] --> B[API Gateway]
+    B --> C[Serviço A]
+    B --> D[Serviço B]
+    C --> E[(Database)]
+    D --> E
+    C --> F[Filas]
+    D --> G[Cache]
+
+🧩 Técnicas Essenciais
+1. Page Objects Aprimorados (UI)
+
+class CheckoutPage:
+    def __init__(self, page):
+        self.page = page
+        self.cart_total = page.locator("#cart-total")
+        self.pay_button = page.locator("#pay-now")
+
+    def complete_purchase(self):
+        self.pay_button.click()
+        return OrderConfirmationPage(self.page)
+
+# Uso no teste
+def test_checkout_flow():
+    checkout = CheckoutPage(page)
+    confirmation = checkout.complete_purchase()
+    assert confirmation.is_order_successful()
+
+2. API Contract Validation
+
+def test_api_contract():
+    response = api.get("/orders/123")
+    
+    # Valida schema OpenAPI
+    assert validate_schema(response.json(), "order_schema_v3.json")
+    
+    # Valida business rules
+    assert response.json()["status"] in ["pending", "completed"]
+    assert response.elapsed < timedelta(seconds=2)
+
+3. Banco de Dados + UI Sync
+
+def test_order_persistence():
+    # 1. Ação na UI
+    ui.select_product("VIP-001")
+    ui.checkout()
+    
+    # 2. Verificação no banco
+    db_order = database.query("SELECT * FROM orders WHERE id = '123'")
+    assert db_order["status"] == "pending"
+    
+    # 3. Valida sincronização
+    ui_status = ui.get_order_status("123")
+    assert ui_status == db_order["status"]
+
+⚡ Padrões Avançados
+1. Testes Multi-Camadas
+
+def test_full_user_journey():
+    # UI → API → DB → Cache
+    user.register_ui()           # Camada UI
+    token = user.get_auth_api()  # Camada API
+    assert db.has_user(token)    # Camada DB
+    assert cache.is_valid(token) # Camada Cache
+
+2. Visual Testing
+
+def test_ui_layout():
+    page.goto("/dashboard")
+    
+    # Validação visual com tolerância de 2%
+    assert screenshot_match(
+        page,
+        threshold=0.02,
+        mask=[".temporary-banner"]  # Ignora elementos dinâmicos
+    )
+
+3. Testes de Resiliência
+
+def test_payment_retry_flow():
+    with mock.patch("PaymentGateway.process", side_effect=[TimeoutError, True]):
+        order = checkout(attempts=2)
+        assert order.is_successful()
+        assert mock.call_count == 2
+
+📊 Matriz de Cobertura
+Fluxo	Prioridade	Camadas Envolvidas	Critérios de Êxito
+Checkout Completo	P0	UI→API→DB→Payment→Email	OrderID consistente em todos sistemas
+Login SSO	P1	UI→AuthAPI→Cache	Session token válido por 24h
+Relatório Financeiro	P2	API→DB→S3	PDF gerado com dados corretos
+🔍 Validações Cruzadas
+
+def test_cross_system_validation():
+    # 1. Ação no Sistema A
+    sys_a.create_order()
+    
+    # 2. Verificação no Sistema B
+    sys_b_orders = external_api.get_orders()
+    
+    # 3. Validação consistente
+    assert_order_sync(
+        source=sys_a.last_order,
+        target=sys_b_orders[-1],
+        fields=["id", "total", "items"]
+    )
+
+🛠️ Template de Saída
+
+## Teste Gerado: `test_checkout_completo.py`
+
+**Fluxo Coberto**:  
+"Usuário premium adiciona 3 itens, aplica cupom, finaliza com Pix"
+
+**Camadas Validadas**:
+1. UI: Interação com carrinho
+2. API: Chamadas ao serviço de preços
+3. DB: Persistência do pedido
+4. External: Gateway de pagamento
+
+```python
+# Código do teste
+def test_checkout_premium_pix():
+    # ... implementação ...
+
+    # ... implementação ...
+Racional:
+
+Cobrir cenário com 35% de ocorrência em produção
+
+Validar integração crítica com gateway Pix
+
+Detectar regressões no cálculo de descontos
+
+
+## 🚨 Checklist de Qualidade
+- [ ] 100% dos passos têm assertions válidas
+- [ ] 0 chamadas para `sleep()` ou waits estáticos
+- [ ] Todos os sistemas externos com timeouts configurados
+- [ ] Dados de teste isolados e limpos após execução
+
+# FIM DO PROMPT ULTRA-APRIMORADO
+

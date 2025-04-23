@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "title": "Prompt Engine Configuration",
+  "description": "Configuração avançada para o PromptEngine Plus",
+  "environment": "production",
+  "version": "3.2.0",
+  "llm": {
+    "provider": "openai",
+    "api_key": "${OPENAI_API_KEY}",
+    "primary_model": "gpt-4-1106-preview",
+    "fallback_model": "gpt-3.5-turbo-1106",
+    "api_base": "https://api.openai.com/v1",
+    "timeout": 45,
+    "temperature": 0.7,
+    "max_tokens": 4000,
+    "frequency_penalty": 0.1,
+    "presence_penalty": 0.1,
+    "model_parameters": {
+      "top_p": 0.9,
+      "best_of": 3,
+      "stop_sequences": ["\n\n", "##"]
+    }
+  },
+  "security": {
+    "level": "high",
+    "injection_patterns": [
+      "\\{\\{.*?\\}\\}",
+      "<\\?.*?\\?>",
+      "`.*?`",
+      "\\$\\{.*?\\}",
+      "eval\\(.*?\\)",
+      "import\\s+(os|subprocess)",
+      "__.*?__"
+    ],
+    "validation": {
+      "min_words": 20,
+      "required_markers": ["##", "'''", "\"\"\""],
+      "max_length": 10000
+    },
+    "context_validation": {
+      "max_depth": 3,
+      "max_size_kb": 10
+    }
+  },
+  "templates": {
+    "base_dir": "./prompts",
+    "auto_reload": true,
+    "default_header": "system/header.txt",
+    "default_footer": "system/footer.txt",
+    "domain_specific": {
+      "financial": "domains/financial_footer.txt",
+      "healthcare": "domains/healthcare_footer.txt"
+    }
+  },
+  "caching": {
+    "enabled": true,
+    "provider": "redis",
+    "redis": {
+      "host": "redis-service",
+      "port": 6379,
+      "db": 0,
+      "password": "${REDIS_PASSWORD}",
+      "ttl": 86400,
+      "cluster_mode": false
+    },
+    "local": {
+      "max_size": 100,
+      "ttl": 3600
+    }
+  },
+  "analytics": {
+    "tracking": {
+      "tokens": true,
+      "cost": true,
+      "latency": true,
+      "success_rate": true
+    },
+    "cost_limits": {
+      "daily": 50.0,
+      "monthly": 500.0,
+      "alert_threshold": 0.8
+    },
+    "export": {
+      "prometheus": {
+        "enabled": true,
+        "port": 9091
+      },
+      "csv": {
+        "enabled": true,
+        "directory": "./analytics"
+      }
+    }
+  },
+  "strategies": {
+    "simple": {
+      "max_tokens": 1000,
+      "temperature": 0.3
+    },
+    "standard": {
+      "max_tokens": 2000,
+      "temperature": 0.7
+    },
+    "complex": {
+      "max_tokens": 4000,
+      "temperature": 0.9,
+      "special_instructions": "Analise profundamente antes de responder"
+    }
+  },
+  "response_processing": {
+    "auto_extract_json": true,
+    "auto_extract_yaml": true,
+    "fallback_to_raw": true,
+    "validation": {
+      "required_fields": ["content", "status"],
+      "schema_mapping": {
+        "e2e": "schemas/e2e_response.json",
+        "unit": "schemas/unit_response.json"
+      }
+    }
+  },
+  "error_handling": {
+    "retry_policy": {
+      "max_attempts": 3,
+      "delay": 2,
+      "backoff": 1.5,
+      "retryable_errors": [
+        "timeout",
+        "rate_limit",
+        "api_error"
+      ]
+    },
+    "fallback_strategy": "reduce_complexity",
+    "circuit_breaker": {
+      "threshold": 5,
+      "interval": 60
+    }
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "logs/prompt_engine.log",
+    "max_size": "10MB",
+    "sensitive_data_redaction": true,
+    "redaction_patterns": [
+      "api_key=.*",
+      "password=.*"
+    ]
+  },
+  "environment_specific": {
+    "development": {
+      "llm": {
+        "primary_model": "gpt-3.5-turbo"
+      },
+      "caching": {
+        "enabled": false
+      }
+    },
+    "production": {
+      "security": {
+        "level": "paranoid"
+      },
+      "analytics": {
+        "tracking": {
+          "detailed": true
+        }
+      }
+    }
+  }
+}

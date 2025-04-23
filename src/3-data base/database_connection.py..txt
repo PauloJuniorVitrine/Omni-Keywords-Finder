@@ -1,0 +1,124 @@
+# database_connection.py — Enterprise Plus++
+# Conexão resiliente com SQLite + Redis (opcional) + suporte assíncrono
+
+import sqlite3
+import logging
+import time
+import threading
+from pathlib import Path
+from functools import lru_cache
+from tenacity import retry, stop_after_attempt, wait_fixed
+import redis
+import aiosqlite
+import asyncio
+from datetime import datetime
+
+# === Configurações ===
+BASE_DIR = Path(".")
+DB_PATH = BASE_DIR / "global_keywords.db"
+REDIS_HOST = "localhost"
+REDIS_PORT = 6379
+LOG_PATH = BASE_DIR / "logs"
+LOG_PATH.mkdir(parents=True, exist_ok=True)
+
+# === Logging ===
+log_file = LOG_PATH / f"database_connection_{datetime.now().strftime('%Y%m%d')}.log"
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler(log_file),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger("database_connection")
+
+# === Cache Redis (opcional) ===
+try:
+    cache = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
+    cache.ping()
+    logger.info("✅ Redis conectado com sucesso.")
+except Exception as e:
+    cache = None
+    logger.warning(f"⚠️ Redis indisponível: {e}")
+
+# === Conexão Singleton com SQLite ===
+class BancoDeDados:
+    _instance = None
+    _lock = threading.Lock()
+
+    def __new__(cls):
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super(BancoDeDados, cls).__new__(cls)
+                cls._instance._init_db()
+            return cls._instance
+
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
+    def _init_db(self):
+        try:
+            self.conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=10)
+            self.conn.execute("PRAGMA foreign_keys = ON")
+            self.conn.execute("PRAGMA journal_mode = WAL")
+            self.conn.execute("PRAGMA busy_timeout = 10000")
+            logger.info("✅ Conexão com banco SQLite estabelecida.")
+        except Exception as e:
+            logger.error(f"❌ Erro ao conectar SQLite: {e}")
+            raise
+
+    def executar_consulta(self, consulta, parametros=None, cache_ttl=60):
+        try:
+            cache_key = f"sql:{consulta}:{parametros}"
+            if cache and cache.exists(cache_key):
+                logger.debug("🟢 Cache hit Redis")
+                return eval(cache.get(cache_key))
+
+            with self.conn:
+                cursor = self.conn.cursor()
+                cursor.execute(consulta, parametros or [])
+                resultado = cursor.fetchall()
+
+            if cache:
+                cache.setex(cache_key, cache_ttl, str(resultado))
+
+            logger.info("🔍 Consulta executada com sucesso")
+            return resultado
+        except Exception as e:
+            logger.error(f"❌ Erro na consulta: {e}")
+            return None
+
+    def executar_modificacao(self, consulta, parametros=None):
+        try:
+            with self.conn:
+                cursor = self.conn.cursor()
+                cursor.execute(consulta, parametros or [])
+                self.conn.commit()
+            logger.info("✅ Modificação executada com sucesso")
+            return True
+        except Exception as e:
+            self.conn.rollback()
+            logger.error(f"❌ Erro na modificação: {e}")
+            return False
+
+    async def executar_consulta_assincrona(self, consulta, parametros=None):
+        try:
+            async with aiosqlite.connect(DB_PATH) as conn:
+                async with conn.execute(consulta, parametros or []) as cursor:
+                    resultado = await cursor.fetchall()
+            logger.info("🔄 Consulta assíncrona executada")
+            return resultado
+        except Exception as e:
+            logger.error(f"❌ Erro assíncrono: {e}")
+            return None
+
+    def fechar_conexao(self):
+        try:
+            self.conn.close()
+            logger.info("🔚 Conexão encerrada com sucesso.")
+        except Exception as e:
+            logger.error(f"❌ Erro ao fechar conexão: {e}")
+
+# === Instância global segura ===
+@lru_cache(maxsize=1)
+def conectar_banco():
+    return BancoDeDados()

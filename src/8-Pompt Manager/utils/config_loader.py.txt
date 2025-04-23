@@ -1,0 +1,160 @@
+import os
+import json
+import logging
+import hashlib
+import redis
+import boto3
+import threading
+import time
+import hmac
+import hashlib
+import asyncio
+import sqlalchemy
+from sqlalchemy import create_engine, Column, String, Integer, Text, DateTime
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+from functools import lru_cache
+from typing import Dict, Any, List
+from fastapi import HTTPException, WebSocket, WebSocketDisconnect, FastAPI, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from src.utils.backup_utils import backup_config
+from src.auth.token_manager import verificar_token
+from dotenv import load_dotenv
+from cryptography.fernet import Fernet
+from datetime import datetime
+from kafka import KafkaProducer
+
+# 🔹 Carregar variáveis de ambiente
+load_dotenv()
+
+# 🔹 Inicializar FastAPI para API de configuração
+app = FastAPI()
+
+# 🔹 Configuração de CORS para permitir acesso à API do frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Modificar para um domínio específico se necessário
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# 🔹 Configuração de Logs Estruturados com suporte para ELK Stack
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.FileHandler("config_loader.log"), logging.StreamHandler()]
+)
+
+# 🔹 Configuração do Redis para cache e fallback
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
+redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=4, decode_responses=True)
+
+# 🔹 Configuração AWS S3 para backup
+S3_BUCKET = os.getenv("S3_BUCKET", "config-backup-storage")
+s3_client = boto3.client("s3")
+
+# 🔹 Configuração de Criptografia Segura
+SECRET_KEY = os.getenv("CONFIG_SECRET_KEY", Fernet.generate_key().decode())
+fernet = Fernet(SECRET_KEY.encode())
+
+# 🔹 Configuração do Banco de Dados
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///config.db")
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+# 🔹 Configuração do Kafka para Mensageria
+KAFKA_BROKER = os.getenv("KAFKA_BROKER", "localhost:9092")
+kafka_producer = KafkaProducer(bootstrap_servers=KAFKA_BROKER, value_serializer=lambda v: json.dumps(v).encode('utf-8'))
+
+# 🔹 Modelo da Tabela de Configuração
+class ConfigDB(Base):
+    __tablename__ = "configuracoes"
+    chave = Column(String, primary_key=True, index=True)
+    valor = Column(Text, nullable=False)
+    atualizado_em = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class NichoDB(Base):
+    __tablename__ = "nichos"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    nome = Column(String, unique=True, nullable=False)
+
+class ConfigHistory(Base):
+    __tablename__ = "config_history"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    chave = Column(String, nullable=False)
+    valor_antigo = Column(Text, nullable=False)
+    valor_novo = Column(Text, nullable=False)
+    atualizado_em = Column(DateTime, default=datetime.utcnow)
+
+# 🔹 Criar Tabelas
+Base.metadata.create_all(bind=engine)
+
+# 🔹 API para Gerenciamento das Configurações
+@app.get("/config")
+def get_config():
+    session = SessionLocal()
+    configs = session.query(ConfigDB).all()
+    session.close()
+    return {config.chave: config.valor for config in configs}
+
+@app.put("/config/{key}")
+def update_config(key: str, value: str):
+    session = SessionLocal()
+    config_entry = session.query(ConfigDB).filter(ConfigDB.chave == key).first()
+    
+    if config_entry:
+        valor_antigo = config_entry.valor
+        config_entry.valor = value
+    else:
+        valor_antigo = ""
+        session.add(ConfigDB(chave=key, valor=value))
+    
+    session.add(ConfigHistory(chave=key, valor_antigo=valor_antigo, valor_novo=value))
+    session.commit()
+    session.close()
+    redis_client.set(key, value, ex=3600)
+    kafka_producer.send("config_updates", {"chave": key, "valor": value})
+    logging.info(f"🔄 Configuração '{key}' atualizada no Banco de Dados e enviada para Kafka.")
+    return {"message": "Configuração atualizada com sucesso!"}
+
+# 🔹 API para Recuperação de Histórico
+@app.get("/config/history")
+def get_config_history():
+    session = SessionLocal()
+    history = session.query(ConfigHistory).all()
+    session.close()
+    return [{"chave": h.chave, "valor_antigo": h.valor_antigo, "valor_novo": h.valor_novo, "data": h.atualizado_em} for h in history]
+
+# 🔹 Webhook para Notificação de Alterações
+@app.post("/config/webhook")
+def notify_config_update(data: Dict[str, Any]):
+    logging.info(f"📡 Webhook recebido: {data}")
+    return {"message": "Webhook recebido com sucesso!"}
+
+# 🔹 Monitoramento contínuo com detecção automática de alterações
+def monitoramento():
+    cache_config_hash = ""
+    while True:
+        session = SessionLocal()
+        nichos = [nicho.nome for nicho in session.query(NichoDB).all()]
+        session.close()
+        redis_client.set("nichos", json.dumps(nichos), ex=3600)
+        
+        config_hash = hashlib.sha256(json.dumps(nichos).encode()).hexdigest()
+        if config_hash != cache_config_hash:
+            kafka_producer.send("config_updates", {"event": "nichos_alterados", "nichos": nichos})
+            cache_config_hash = config_hash
+        
+        time.sleep(600)
+
+# 🔄 Inicia thread para monitoramento
+t = threading.Thread(target=monitoramento, daemon=True)
+t.start()
+
+# 🔹 Exemplo de uso
+if __name__ == "__main__":
+    logging.info("✅ Config Loader inicializado com sucesso!")
+    logging.info(f"🎯 Nichos disponíveis: {get_config()}")

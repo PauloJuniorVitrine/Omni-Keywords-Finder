@@ -1,0 +1,82 @@
+document.addEventListener("DOMContentLoaded", async function () {
+    showLoader();
+    await loadNichos();
+    hideLoader();
+});
+
+const API_URL = "/api/nichos";
+const CACHE_KEY = "nichos_cache";
+const CACHE_EXPIRATION = 300000; // 5 minutos
+
+function showLoader() {
+    document.getElementById("loader").style.display = "block";
+}
+
+function hideLoader() {
+    document.getElementById("loader").style.display = "none";
+}
+
+async function fetchWithCache(url) {
+    const cachedData = sessionStorage.getItem(CACHE_KEY);
+    if (cachedData) {
+        const { timestamp, data } = JSON.parse(cachedData);
+        if (Date.now() - timestamp < CACHE_EXPIRATION) {
+            return data;
+        }
+    }
+    try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error("Erro ao buscar dados");
+        const data = await response.json();
+        sessionStorage.setItem(CACHE_KEY, JSON.stringify({ timestamp: Date.now(), data }));
+        return data;
+    } catch (error) {
+        console.error("Erro ao carregar nichos:", error);
+        showError("Falha ao carregar nichos. Tente novamente mais tarde.");
+        return [];
+    }
+}
+
+async function loadNichos() {
+    const nichos = await fetchWithCache(API_URL);
+    const nichosContainer = document.getElementById("nichos-list");
+    nichosContainer.innerHTML = "";
+    
+    const fragment = document.createDocumentFragment();
+    nichos.forEach(nicho => {
+        const option = document.createElement("option");
+        option.textContent = nicho.nome;
+        option.value = nicho.id;
+        option.setAttribute("aria-label", `Nicho: ${nicho.nome}`);
+        option.setAttribute("tabindex", "0");
+        fragment.appendChild(option);
+    });
+    nichosContainer.appendChild(fragment);
+}
+
+function showError(message) {
+    const errorContainer = document.getElementById("error-message");
+    errorContainer.textContent = message;
+    errorContainer.style.display = "block";
+}
+
+async function listenForNichoUpdates() {
+    const socket = new WebSocket("ws://localhost:8000/ws/nichos");
+    socket.onmessage = async function (event) {
+        console.log("📡 Atualização recebida dos nichos.");
+        sessionStorage.removeItem(CACHE_KEY);
+        await loadNichos();
+    };
+}
+
+listenForNichoUpdates();
+
+document.getElementById("nichos-form").addEventListener("submit", async function (event) {
+    event.preventDefault();
+    const selectedNicho = document.getElementById("nichos-list").value;
+    if (!selectedNicho) {
+        showError("Por favor, selecione um nicho válido.");
+        return;
+    }
+    console.log("Nicho selecionado:", selectedNicho);
+});

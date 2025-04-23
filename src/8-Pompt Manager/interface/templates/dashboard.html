@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard de Prompts</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 Dashboard de Prompts</h1>
+        <button id="toggle-theme">🌗 Alternar Tema</button>
+        <div id="filters">
+            <label for="date-filter">Filtrar por Data:</label>
+            <input type="date" id="date-filter">
+            <label for="category-filter">Filtrar por Categoria:</label>
+            <select id="category-filter"></select>
+            <button id="apply-filters">🔍 Aplicar Filtros</button>
+        </div>
+        <div id="loader" class="loader"></div>
+        <canvas id="promptChart"></canvas>
+        <div id="error-message" class="error" style="display:none;"></div>
+        <button id="refresh-data">🔄 Atualizar Dados</button>
+    </div>
+
+    <script>
+        const API_DASHBOARD_URL = "/api/dashboard";
+        const ws = new WebSocket("ws://localhost:8000/ws/dashboard");
+        let chartInstance;
+        
+        async function fetchData(filters = {}) {
+            document.getElementById("loader").style.display = "block";
+            try {
+                const queryParams = new URLSearchParams(filters).toString();
+                const response = await fetch(`${API_DASHBOARD_URL}?${queryParams}`);
+                if (!response.ok) throw new Error("Erro ao buscar dados");
+                const data = await response.json();
+                updateChart(data);
+            } catch (error) {
+                console.error("Erro ao carregar dados:", error);
+                showError("Falha ao carregar os dados do dashboard.");
+            } finally {
+                document.getElementById("loader").style.display = "none";
+            }
+        }
+        
+        function showError(message) {
+            const errorContainer = document.getElementById("error-message");
+            errorContainer.textContent = message;
+            errorContainer.style.display = "block";
+        }
+        
+        function updateChart(data) {
+            const ctx = document.getElementById("promptChart").getContext("2d");
+            if (chartInstance) chartInstance.destroy();
+            chartInstance = new Chart(ctx, {
+                type: "bar",
+                data: {
+                    labels: data.labels,
+                    datasets: [{
+                        label: "Quantidade de Prompts",
+                        data: data.values,
+                        backgroundColor: "rgba(75, 192, 192, 0.6)",
+                        borderColor: "rgba(75, 192, 192, 1)",
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: {
+                        duration: 1000,
+                        easing: "easeInOutQuad"
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+        
+        document.getElementById("refresh-data").addEventListener("click", () => fetchData());
+        
+        ws.onmessage = (event) => {
+            console.log("📡 Atualização em tempo real do dashboard recebida.");
+            fetchData();
+        };
+
+        document.getElementById("apply-filters").addEventListener("click", () => {
+            const filters = {
+                date: document.getElementById("date-filter").value,
+                category: document.getElementById("category-filter").value
+            };
+            fetchData(filters);
+        });
+
+        document.getElementById("toggle-theme").addEventListener("click", () => {
+            document.body.classList.toggle("dark-mode");
+        });
+        
+        fetchData();
+    </script>
+</body>
+</html>

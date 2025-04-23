@@ -1,0 +1,91 @@
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from database import SessionLocal
+from models import Nicho
+from auth import get_current_user
+import redis
+import logging
+
+# 🔍 Configuração de cache com Redis
+CACHE_ENABLED = True  # Alterar para False se não quiser usar cache
+redis_client = redis.Redis(host="localhost", port=6379, db=0) if CACHE_ENABLED else None
+
+# 📢 Configuração de Logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
+
+router = APIRouter(prefix="/nichos", tags=["Nichos"])
+
+# Dependência do banco de dados
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# 🔍 Cache Helper
+def get_cached_nichos():
+    if CACHE_ENABLED and redis_client.exists("nichos_cache"):
+        return redis_client.get("nichos_cache")
+    return None
+
+def set_cached_nichos(data):
+    if CACHE_ENABLED:
+        redis_client.setex("nichos_cache", 300, data)  # Expira em 5 min
+
+# 📌 Listar Nichos com Paginação e Cache
+@router.get("/")
+def listar_nichos(skip: int = 0, limit: int = 10, db: Session = Depends(get_db)):
+    cached_nichos = get_cached_nichos()
+    if cached_nichos:
+        return cached_nichos  # Retorna do cache
+    
+    nichos = db.query(Nicho).filter(Nicho.ativo == True).offset(skip).limit(limit).all()
+    set_cached_nichos(nichos)
+    return nichos
+
+# 📌 Criar Nicho (Protegido por JWT)
+@router.post("/", status_code=status.HTTP_201_CREATED)
+def criar_nicho(nome: str, db: Session = Depends(get_db), usuario=Depends(get_current_user)):
+    if db.query(Nicho).filter(Nicho.nome == nome).first():
+        raise HTTPException(status_code=400, detail="Nicho já existe")
+    
+    novo_nicho = Nicho(nome=nome, modificado_por=usuario["username"])
+    db.add(novo_nicho)
+    db.commit()
+    db.refresh(novo_nicho)
+    redis_client.delete("nichos_cache")  # Limpa cache
+    logging.info(f"🆕 Nicho criado: {nome} por {usuario['username']}")
+    return novo_nicho
+
+# 📌 Atualizar Nicho (Protegido por JWT)
+@router.put("/{nicho_id}")
+def atualizar_nicho(nicho_id: int, nome: str, db: Session = Depends(get_db), usuario=Depends(get_current_user)):
+    nicho = db.query(Nicho).filter(Nicho.id == nicho_id, Nicho.ativo == True).first()
+    if not nicho:
+        raise HTTPException(status_code=404, detail="Nicho não encontrado")
+    
+    nicho.nome = nome
+    nicho.modificado_por = usuario["username"]
+    db.commit()
+    db.refresh(nicho)
+    redis_client.delete("nichos_cache")
+    logging.info(f"✏️ Nicho atualizado: {nome} por {usuario['username']}")
+    return nicho
+
+# 📌 Deletar Nicho (Soft Delete)
+@router.delete("/{nicho_id}")
+def deletar_nicho(nicho_id: int, db: Session = Depends(get_db), usuario=Depends(get_current_user)):
+    nicho = db.query(Nicho).filter(Nicho.id == nicho_id, Nicho.ativo == True).first()
+    if not nicho:
+        raise HTTPException(status_code=404, detail="Nicho não encontrado")
+    
+    nicho.ativo = False
+    nicho.modificado_por = usuario["username"]
+    db.commit()
+    redis_client.delete("nichos_cache")
+    logging.warning(f"🗑️ Nicho desativado: {nicho.nome} por {usuario['username']}")
+    return {"message": "Nicho desativado"}

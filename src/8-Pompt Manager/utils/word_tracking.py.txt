@@ -1,0 +1,147 @@
+import sqlite3
+import redis
+import random
+import logging
+import contextlib
+import json
+import numpy as np
+import asyncio
+from collections import Counter
+from functools import lru_cache
+from fastapi import FastAPI, WebSocket
+from concurrent.futures import ThreadPoolExecutor
+import aiosqlite
+from prometheus_client import Counter as PromCounter, Histogram, generate_latest
+from typing import List, Optional
+
+# 🔹 Configuração do Log
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+# 🔹 Banco de Dados e Cache
+db_path = "word_distribution.db"
+redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+executor = ThreadPoolExecutor(max_workers=5)
+
+# 🔹 Configuração de Métricas Prometheus
+word_request_counter = PromCounter("word_requests_total", "Total de requisições de palavras", ["category"])
+word_selection_histogram = Histogram("word_selection_seconds", "Tempo gasto para selecionar uma palavra", ["category"])
+
+# 🔹 Criar API para monitoramento da distribuição
+app = FastAPI()
+
+# 🔹 Criar tabela no SQLite (com suporte a WAL para segurança)
+async def setup_database():
+    async with aiosqlite.connect(db_path) as conn:
+        await conn.execute("PRAGMA journal_mode=WAL;")  # Ativa modo WAL
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS word_usage (
+                word TEXT PRIMARY KEY,
+                count INTEGER DEFAULT 0,
+                last_used TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                category TEXT DEFAULT 'general'
+            )
+        ''')
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_word_usage_count_category ON word_usage (count, category)
+        ''')
+        await conn.commit()
+
+# 🔹 Registrar Palavra no Banco de Dados (Assíncrono com rollback automático)
+async def register_word(word, category='general'):
+    try:
+        async with aiosqlite.connect(db_path) as conn:
+            await conn.execute("INSERT INTO word_usage (word, count, category) VALUES (?, 1, ?) ON CONFLICT(word) DO UPDATE SET count = count + 1, last_used = CURRENT_TIMESTAMP", (word, category))
+            await conn.commit()
+        redis_client.delete("word_distribution_cache")  # Limpa o cache para forçar atualização
+    except Exception as e:
+        logging.error(f"Erro ao registrar palavra: {e}")
+
+# 🔹 Selecionar Palavras Menos Usadas com Cache
+@lru_cache(maxsize=128)
+def get_least_used_words(category='general', limit=10):
+    cache_key = f"word_distribution_cache_{category}"
+    cached_data = redis_client.get(cache_key)
+    if cached_data:
+        return json.loads(cached_data)
+    
+    with sqlite3.connect(db_path) as conn:
+        with contextlib.closing(conn.cursor()) as cursor:
+            cursor.execute("SELECT word FROM word_usage WHERE category = ? ORDER BY count ASC, last_used ASC LIMIT ?", (category, limit))
+            words = [row[0] for row in cursor.fetchall()]
+    redis_client.setex(cache_key, 300, json.dumps(words))  # Cache válido por 5 minutos
+    return words
+
+# 🔹 Backup Automático do Banco de Dados
+def backup_database():
+    import shutil
+    try:
+        shutil.copy(db_path, f"backups/word_distribution_backup.sqlite")
+        logging.info("Backup do banco de dados concluído com sucesso.")
+    except Exception as e:
+        logging.error(f"Erro ao criar backup: {e}")
+
+# 🔹 Selecionar Palavra Priorizando as Menos Usadas com Distribuição Exponencial
+async def select_word(word_list, category='general'):
+    if not word_list:
+        logging.warning("Lista de palavras vazia.")
+        return None
+    
+    counter = Counter(word_list)
+    word_weights = np.array([np.exp(-counter[word]) for word in word_list])
+    word_weights /= word_weights.sum()  # Normaliza pesos para soma = 1
+    
+    with word_selection_histogram.labels(category=category).time():
+        selected_word = np.random.choice(word_list, p=word_weights)
+        await register_word(selected_word, category)
+    return selected_word
+
+# 🔹 WebSocket para Monitoramento em Tempo Real
+@app.websocket("/ws/stats")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    while True:
+        words_general = get_least_used_words()
+        words_tech = get_least_used_words(category='tech')
+        await websocket.send_json({
+            "geral": words_general,
+            "tecnologia": words_tech,
+            "mais_usadas": await get_most_used_words()
+        })
+        await asyncio.sleep(5)  # Atualiza a cada 5 segundos
+
+# 🔹 API de Monitoramento
+@app.get("/stats")
+async def get_stats():
+    words_general = get_least_used_words()
+    words_tech = get_least_used_words(category='tech')
+    return {
+        "geral": words_general,
+        "tecnologia": words_tech,
+        "mais_usadas": await get_most_used_words(),
+    }
+
+@app.get("/metrics")
+def metrics():
+    return generate_latest()
+
+async def get_most_used_words(limit=10):
+    async with aiosqlite.connect(db_path) as conn:
+        cursor = await conn.execute("SELECT word FROM word_usage ORDER BY count DESC LIMIT ?", (limit,))
+        words = await cursor.fetchall()
+        return [row[0] for row in words]
+
+# 🔹 Testando a Distribuição
+async def test_distribution():
+    await setup_database()
+    words_general = ["estratégia", "criatividade", "tecnologia", "automação", "otimização", "eficiência", "inovação", "tendência"]
+    words_tech = ["AI", "Machine Learning", "Cloud", "Big Data", "Blockchain"]
+    
+    for _ in range(50):
+        await select_word(words_general, category='general')
+        await select_word(words_tech, category='tech')
+    
+    logging.info("Menos usadas atualmente:", get_least_used_words())
+    backup_database()  # Executa backup após atualização
+
+if __name__ == "__main__":
+    asyncio.run(test_distribution())

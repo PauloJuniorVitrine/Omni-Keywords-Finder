@@ -1,0 +1,111 @@
+import sqlite3
+import logging
+import time
+import os
+from contextlib import closing
+
+DATABASE_PATH = "database/system_data.db"
+BACKUP_DIR = "database/backups"
+LOG_FILE = "logs/learning_system.log"
+
+# Configuração de logs
+logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+def criar_tabela():
+    """Cria a tabela no banco de dados se não existir."""
+    with sqlite3.connect(DATABASE_PATH) as conn:
+        with closing(conn.cursor()) as cursor:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS palavras_ranking (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    palavra TEXT UNIQUE NOT NULL,
+                    frequencia INTEGER DEFAULT 0,
+                    desempenho REAL DEFAULT 0.0,
+                    ultima_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_palavra ON palavras_ranking (palavra)")
+        conn.commit()
+    logging.info("📌 Banco de aprendizado inicializado com sucesso.")
+
+def registrar_palavras(palavras):
+    """Registra palavras e atualiza frequência, com tratamento de erro."""
+    try:
+        with sqlite3.connect(DATABASE_PATH) as conn:
+            with closing(conn.cursor()) as cursor:
+                for palavra in palavras:
+                    cursor.execute("""
+                        INSERT INTO palavras_ranking (palavra, frequencia, ultima_atualizacao) 
+                        VALUES (?, 1, CURRENT_TIMESTAMP) 
+                        ON CONFLICT(palavra) DO UPDATE SET frequencia = frequencia + 1, ultima_atualizacao = CURRENT_TIMESTAMP
+                    """, (palavra,))
+            conn.commit()
+        logging.info(f"✅ Palavras registradas: {', '.join(palavras)}")
+    except Exception as e:
+        logging.error(f"❌ Erro ao registrar palavras: {e}")
+
+def atualizar_desempenho(palavra, nova_nota):
+    """Atualiza a pontuação de desempenho de uma palavra."""
+    try:
+        with sqlite3.connect(DATABASE_PATH) as conn:
+            with closing(conn.cursor()) as cursor:
+                cursor.execute("""
+                    UPDATE palavras_ranking 
+                    SET desempenho = ((desempenho * frequencia) + ?) / (frequencia + 1), 
+                        ultima_atualizacao = CURRENT_TIMESTAMP
+                    WHERE palavra = ?
+                """, (nova_nota, palavra))
+            conn.commit()
+        logging.info(f"📊 Desempenho atualizado para {palavra}: {nova_nota}")
+    except Exception as e:
+        logging.error(f"❌ Erro ao atualizar desempenho da palavra {palavra}: {e}")
+
+def obter_top_palavras(limit=10):
+    """Retorna as palavras de melhor desempenho."""
+    try:
+        with sqlite3.connect(DATABASE_PATH) as conn:
+            with closing(conn.cursor()) as cursor:
+                cursor.execute("""
+                    SELECT palavra FROM palavras_ranking 
+                    ORDER BY desempenho DESC, frequencia DESC 
+                    LIMIT ?
+                """, (limit,))
+                palavras = [row[0] for row in cursor.fetchall()]
+        logging.info(f"📈 Top {limit} palavras-chave priorizadas: {', '.join(palavras)}")
+        return palavras
+    except Exception as e:
+        logging.error(f"❌ Erro ao obter palavras-chave: {e}")
+        return []
+
+def excluir_palavras_fracas(limite_desempenho=1.5, limite_frequencia=5):
+    """Remove palavras que têm baixo desempenho e baixa frequência."""
+    try:
+        with sqlite3.connect(DATABASE_PATH) as conn:
+            with closing(conn.cursor()) as cursor:
+                cursor.execute("""
+                    DELETE FROM palavras_ranking 
+                    WHERE desempenho < ? AND frequencia < ?
+                """, (limite_desempenho, limite_frequencia))
+            conn.commit()
+        logging.info(f"🗑️ Palavras com desempenho < {limite_desempenho} e frequência < {limite_frequencia} foram removidas.")
+    except Exception as e:
+        logging.error(f"❌ Erro ao excluir palavras fracas: {e}")
+
+def backup_historico():
+    """Cria um backup do banco de aprendizado, garantindo que o diretório existe."""
+    try:
+        if not os.path.exists(BACKUP_DIR):
+            os.makedirs(BACKUP_DIR)
+        
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        backup_path = f"{BACKUP_DIR}/historico_palavras_{timestamp}.db"
+        
+        with sqlite3.connect(DATABASE_PATH) as conn:
+            with sqlite3.connect(backup_path) as backup_conn:
+                conn.backup(backup_conn)
+        logging.info(f"📂 Backup criado: {backup_path}")
+    except Exception as e:
+        logging.error(f"❌ Erro ao criar backup: {e}")
+
+if __name__ == "__main__":
+    criar_tabela()

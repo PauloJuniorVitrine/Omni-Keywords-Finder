@@ -1,0 +1,21 @@
+export default function Home() {
+  return (
+    <div className="p-6 flex flex-col items-center text-center min-h-screen bg-gray-100">
+      <h1 className="text-4xl font-extrabold text-gray-900">Bem-vindo ao Painel de Controle</h1>
+      <p className="text-gray-700 mt-4 max-w-2xl text-lg">
+        Gerencie seus nichos, palavras-chave e templates de forma eficiente e organizada.
+      </p>
+      <div className="mt-6 flex space-x-4">
+        <button className="px-6 py-3 bg-blue-600 text-white rounded-lg shadow-md hover:bg-blue-700 transition duration-300">
+          📂 Acessar Nichos
+        </button>
+        <button className="px-6 py-3 bg-green-600 text-white rounded-lg shadow-md hover:bg-green-700 transition duration-300">
+          ✨ Criar Novo Template
+        </button>
+      </div>
+      <footer className="mt-12 text-sm text-gray-500">
+        © {new Date().getFullYear()} Sistema de Gestão - Todos os direitos reservados.
+      </footer>
+    </div>
+  );
+}

@@ -1,0 +1,118 @@
+import os
+import logging
+import asyncio
+import redis
+from fastapi import FastAPI, Depends, HTTPException, status, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.security import OAuth2PasswordBearer
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from prometheus_fastapi_instrumentator import Instrumentator
+from fastapi_cache import FastAPICache
+from fastapi_cache.backends.redis import RedisBackend
+from fastapi_cache.decorator import cache
+from dotenv import load_dotenv
+import jwt
+from datetime import datetime, timedelta
+import pytest
+
+# 🔄 Carregar variáveis de ambiente
+load_dotenv()
+
+# 📢 Configuração de Logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
+
+# 🚀 Inicialização da API
+app = FastAPI(title="Omni Keywords Finder API", description="API para gerenciamento de palavras-chave", version="1.0.0")
+
+# 🔐 Configuração de Segurança e Rate Limiting
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
+limiter = Limiter(key_func=get_remote_address)
+
+# 🌍 Configuração de CORS (Restringindo para Domínios Confiáveis)
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost, http://127.0.0.1").split(",")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["*"],
+)
+
+# 📈 Middleware para Compressão
+app.add_middleware(GZipMiddleware)
+
+# 📊 Configuração do Monitoramento de Performance
+Instrumentator().instrument(app).expose(app)
+
+# 🔄 Configuração de Cache com Redis
+redis_client = redis.Redis(host=os.getenv("REDIS_HOST", "localhost"), port=int(os.getenv("REDIS_PORT", 6379)))
+FastAPICache.init(RedisBackend(redis_client), prefix="fastapi-cache")
+
+# 🔑 Autenticação JWT com Refresh Token
+SECRET_KEY = os.getenv("SECRET_KEY", "supersecreta-chave")
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+REFRESH_TOKEN_EXPIRE_DAYS = 7
+
+def create_access_token(data: dict, expires_delta: timedelta = None):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm="HS256")
+
+@app.post("/auth/token")
+def login():
+    access_token = create_access_token({"sub": "usuario_demo"})
+    refresh_token = create_access_token({"sub": "usuario_demo"}, expires_delta=timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
+    return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer"}
+
+# 📑 Rota de Teste (Protegida por JWT, Rate Limit e Cache)
+@app.get("/protected", dependencies=[Depends(get_remote_address)])
+@limiter.limit("5/minute")
+@cache(expire=60)
+def protected_route():
+    return {"message": "Você acessou uma rota protegida!"}
+
+# 🔄 WebSockets para Atualizações em Tempo Real
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        while True:
+            data = await websocket.receive_text()
+            await websocket.send_text(f"Mensagem recebida: {data}")
+    except WebSocketDisconnect:
+        logging.info("🔌 Cliente desconectado do WebSocket")
+
+# 📝 Personalização do Swagger
+@app.get("/docs", include_in_schema=False)
+def custom_swagger():
+    return {"message": "Acesse a documentação em /redoc"}
+
+@app.get("/health")
+def health_check():
+    return {"status": "OK"}
+
+# 🔬 Testes Automatizados com `pytest`
+@pytest.fixture
+def client():
+    from fastapi.testclient import TestClient
+    return TestClient(app)
+
+@pytest.mark.parametrize("endpoint, expected_status", [
+    ("/health", 200),
+    ("/protected", 401),
+])
+def test_endpoints(client, endpoint, expected_status):
+    response = client.get(endpoint)
+    assert response.status_code == expected_status
+
+# 🔄 Inicialização do Servidor
+if __name__ == "__main__":
+    import uvicorn
+    logging.info("🚀 Servidor rodando em http://localhost:8000")
+    uvicorn.run(app, host="0.0.0.0", port=8000)

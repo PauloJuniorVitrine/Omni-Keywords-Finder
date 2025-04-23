@@ -1,0 +1,57 @@
+# Dependências principais
+python>=3.8
+openai>=0.27.0
+redis>=4.5.0
+psutil>=5.9.0
+jsonschema>=4.17.0
+tenacity>=8.2.0
+pytest>=7.2.0
+locust>=2.15.0
+k6>=0.0.0  # Nota: k6 precisa ser instalado separadamente (não é pacote Python)
+prometheus-client>=0.16.0
+
+# Ferramentas de teste e qualidade
+bandit>=1.7.4
+pylint>=2.15.0
+mypy>=1.0.0
+pytest-cov>=4.0.0
+
+# Processamento de dados e mensageria
+pandas>=1.5.0
+pyyaml>=6.0
+kafka-python>=2.0.2
+grpcio>=1.50.0
+grpcio-tools>=1.50.0
+
+# Containers e infraestrutura
+docker>=6.0.0
+testcontainers>=3.7.0
+localstack>=1.4.0
+chaos-mesh>=2.5.0  # Verificar instalação específica
+
+# CLI e utilitários
+click>=8.1.0
+tqdm>=4.64.0
+python-dotenv>=0.21.0
+python-dateutil>=2.8.0
+
+# Internacionalização
+gettext>=0.21.0
+
+# GitHub Actions específico
+pygithub>=1.55
+actions-toolkit>=0.0.0  # Para integração com GitHub Actions
+
+# Dependências opcionais (para funcionalidades avançadas)
+apache-airflow>=2.5.0  # Para pipelines de dados
+pact-python>=1.0.0  # Para contract testing
+allure-pytest>=2.9.0  # Para relatórios avançados
+
+# Segurança
+cryptography>=38.0.0
+pyjwt>=2.6.0
+
+# Markdown e documentação
+mkdocs>=1.4.0
+mkdocs-material>=8.5.0
+mermaid>=0.0.0  # Para diagramas (pode requerer instalação adicional)

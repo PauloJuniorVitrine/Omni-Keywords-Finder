@@ -1,0 +1,80 @@
+import pathlib
+import logging
+import concurrent.futures
+import json
+from datetime import datetime
+from fastapi import FastAPI
+
+app = FastAPI()
+
+# Configuração de Logging
+def setup_logging():
+    logging.basicConfig(
+        filename="delivery_check.log",
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+    )
+
+# Verificação do Diretório
+def check_directory(directory: pathlib.Path):
+    if not directory.exists():
+        logging.error(f"🚨 Diretório não encontrado: {directory}")
+        return False
+    if not directory.is_dir():
+        logging.error(f"⚠️ Caminho não é um diretório: {directory}")
+        return False
+    return True
+
+# Verificação de Integridade dos Arquivos
+def verify_file_integrity(file: pathlib.Path):
+    try:
+        if not file.exists():
+            logging.warning(f"❌ Arquivo ausente: {file}")
+            return {"file": str(file), "status": "ausente"}
+        if file.stat().st_size == 0:
+            logging.warning(f"⚠️ Arquivo vazio detectado: {file}")
+            file.write_text("Reenvie este arquivo.")
+            return {"file": str(file), "status": "vazio (corrigido)"}
+        return {"file": str(file), "status": "ok"}
+    except PermissionError:
+        logging.error(f"🚫 Permissão negada para acessar o arquivo: {file}")
+        return {"file": str(file), "status": "erro de permissão"}
+
+# Geração de Relatório de Entregas
+def generate_report(directory: str, results: list):
+    report_path = pathlib.Path(directory) / "delivery_report.json"
+    report_data = {
+        "timestamp": datetime.now().isoformat(),
+        "directory": directory,
+        "results": results
+    }
+    with open(report_path, "w") as report_file:
+        json.dump(report_data, report_file, indent=4)
+    logging.info(f"📄 Relatório gerado: {report_path}")
+    return report_path
+
+# Verificação de Entrega de Arquivos
+def check_prompt_delivery(directory: str):
+    path = pathlib.Path(directory)
+    if not check_directory(path):
+        return {"error": "Diretório inválido"}
+    
+    files = list(path.glob("*.txt"))
+    if not files:
+        logging.warning("⚠️ Nenhum arquivo de prompt encontrado no diretório!")
+        return {"warning": "Nenhum arquivo encontrado"}
+    
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        results = list(executor.map(verify_file_integrity, files))
+    
+    report = generate_report(directory, results)
+    return {"message": "Verificação concluída", "report": str(report)}
+
+# 🚀 API para Consulta de Status das Entregas
+@app.get("/status")
+def get_delivery_status(directory: str):
+    return check_prompt_delivery(directory)
+
+if __name__ == "__main__":
+    setup_logging()
+    check_prompt_delivery("/caminho/para/diretorio/prompts")

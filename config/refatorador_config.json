@@ -1,0 +1,11 @@
+{
+  "executar_relocacao": true,
+  "aplicar_recomendacoes_do_plano": true,
+  "forcar_criacao_de_pastas": true,
+  "modo_dry_run": false,
+  "nivel_log": "INFO",
+  "idioma": "pt",
+  "criar_backup": true,
+  "max_retries": 3,
+  "retry_delay": 2
+}

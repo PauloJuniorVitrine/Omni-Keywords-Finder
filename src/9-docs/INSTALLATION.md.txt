@@ -1,0 +1,103 @@
+# ⚙️ Instalação do Sistema — Omni Keywords Finder
+
+Este guia descreve o passo a passo para instalação e execução local do sistema **Omni Keywords Finder**, em ambiente de desenvolvimento.
+
+---
+
+## ✅ Pré-requisitos
+
+Certifique-se de que os seguintes itens estejam instalados:
+
+### Backend (Python)
+- Python 3.11+
+- Pip (gerenciador de pacotes)
+- Virtualenv (opcional, mas recomendado)
+
+### Frontend (React)
+- Node.js 18+
+- npm ou yarn
+
+### Banco de Dados
+- SQLite (modo padrão) ou PostgreSQL (produção)
+
+---
+
+## 📁 Clonar o Repositório
+
+```bash
+git clone https://github.com/seu-usuario/omni-keywords-finder.git
+cd omni-keywords-finder
+
+🐍 Configurar Ambiente Python
+
+# Criar ambiente virtual
+python -m venv .venv
+
+# Ativar ambiente virtual
+source .venv/bin/activate        # Linux/macOS
+.venv\Scripts\activate           # Windows
+
+# Instalar dependências
+pip install -r requirements.txt
+
+🌐 Configurar Frontend (React)
+
+cd src/7-interface/frontend
+npm install
+🔐 Configurar Variáveis de Ambiente
+
+Copie o arquivo .env.example para .env e edite os valores conforme necessário:
+
+cp src/10-config/.env.development.txt .env
+Ou configure manualmente:
+
+DATABASE_URL=sqlite:///system_data.db
+GOOGLE_API_KEY=sua_api_google
+SECRET_KEY=sua_chave_secreta
+ENV=development
+🗄️ Preparar o Banco de Dados
+
+Para SQLite (default):
+
+
+cd src/8-Pompt Manager/database
+python setup_database.py
+
+
+Para PostgreSQL (opcional):
+
+    Crie o banco:
+
+    CREATE DATABASE omni;
+
+
+    Atualize o DATABASE_URL no .env
+
+▶️ Executar o Backend
+
+cd src/7-interface/backend
+python app.py
+
+▶️ Executar o Frontend
+
+cd src/7-interface/frontend
+npm run dev
+
+
+O frontend será iniciado em: http://localhost:5173
+🧪 Executar Testes
+
+pytest
+
+🆘 Dicas e Soluções Comuns
+Problema	Solução
+ModuleNotFoundError	Verifique se o ambiente virtual está ativado
+sqlite3.OperationalError	Verifique se o banco foi criado corretamente
+EADDRINUSE	Porta já em uso — altere em vite.config.js
+🏁 Pronto!
+
+Seu ambiente de desenvolvimento está configurado. Agora você pode começar a explorar e usar o Omni Keywords Finder.
+
+
+
+---

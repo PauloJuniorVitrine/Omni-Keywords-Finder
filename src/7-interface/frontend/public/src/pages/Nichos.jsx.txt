@@ -1,0 +1,96 @@
+// /src/pages/Nichos.jsx
+import { useState, useEffect } from "react";
+import Table from "@/components/ui/Table";
+import Button from "@/components/ui/Button";
+import Loader from "@/components/ui/Loader";
+import Toast from "@/components/ui/Toast";
+import DeleteNichoModal from "@/components/nichos/DeleteNichoModal";
+import { useNichos } from "@/hooks/useNichos";
+
+const NichosPage = () => {
+  const { nichos, loading, error, refresh, removeNicho } = useNichos();
+  const [toast, setToast] = useState(null);
+  const [selected, setSelected] = useState(null);
+  const [modalOpen, setModalOpen] = useState(false);
+
+  const handleDelete = (item) => {
+    setSelected(item);
+    setModalOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    const result = await removeNicho(selected.id);
+    setModalOpen(false);
+    setToast({
+      type: result.success ? "success" : "error",
+      message: result.success ? "Nicho excluído com sucesso" : "Erro ao excluir nicho"
+    });
+  };
+
+  const handleEdit = (item) => {
+    console.log("Editar nicho:", item);
+    // lógica futura para modal ou redirecionamento
+  };
+
+  const handleAdd = () => {
+    console.log("Adicionar novo nicho");
+    // lógica futura para formulário de criação
+  };
+
+  const columns = [
+    { key: "nome", label: "Nome" },
+    { key: "descricao", label: "Descrição" },
+    {
+      key: "acoes",
+      label: "Ações",
+      render: (_, row) => (
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={() => handleEdit(row)} aria-label={`Editar nicho ${row.nome}`}>Editar</Button>
+          <Button variant="danger" onClick={() => handleDelete(row)} aria-label={`Excluir nicho ${row.nome}`}>Excluir</Button>
+        </div>
+      )
+    }
+  ];
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-xl font-semibold">Gerenciar Nichos</h2>
+        <Button onClick={handleAdd}>Adicionar Nicho</Button>
+      </div>
+
+      {error && (
+        <div className="mb-4 p-3 rounded bg-red-100 text-red-700 border border-red-300">
+          {error}
+        </div>
+      )}
+
+      {loading ? (
+        <Loader />
+      ) : (
+        <Table
+          columns={columns}
+          data={nichos}
+          emptyText="Nenhum nicho cadastrado até o momento. Use o botão acima para criar um novo."
+        />
+      )}
+
+      <DeleteNichoModal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onConfirm={confirmDelete}
+        item={selected}
+      />
+
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
+    </div>
+  );
+};
+
+export default NichosPage;

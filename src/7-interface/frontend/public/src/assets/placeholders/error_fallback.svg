@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="160" viewBox="0 0 240 160" fill="none"
+     role="img" aria-label="Estado vazio - nenhum conteúdo encontrado">
+  <rect width="240" height="160" rx="12" fill="#F3F4F6" />
+  <circle cx="120" cy="70" r="30" fill="#E5E7EB" />
+  <path d="M100 120h40" stroke="#D1D5DB" stroke-width="4" stroke-linecap="round" />
+  <text x="120" y="145" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="14" fill="#9CA3AF">
+    Nenhum conteúdo encontrado
+  </text>
+</svg>

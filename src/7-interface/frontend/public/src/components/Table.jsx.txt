@@ -1,0 +1,59 @@
+// /src/components/Table.jsx
+const Table = ({
+  columns = [],
+  data = [],
+  emptyText = "Nenhum registro encontrado",
+  loading = false,
+  onRowClick = null
+}) => {
+  return (
+    <div className="w-full overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
+      <table className="min-w-[600px] w-full divide-y divide-zinc-200 dark:divide-zinc-700 text-sm" data-testid="table-component">
+        <thead className="bg-zinc-50 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200">
+          <tr>
+            {columns.map((col) => (
+              <th key={col.key} className={`px-4 py-2 text-left font-medium ${col.className || ''}`}>
+                {col.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="bg-white dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-700">
+          {loading ? (
+            <tr>
+              <td colSpan={columns.length} className="text-center py-4 text-zinc-400">
+                Carregando...
+              </td>
+            </tr>
+          ) : data.length === 0 ? (
+            <tr>
+              <td colSpan={columns.length} className="text-center py-4 text-zinc-400">
+                {emptyText}
+              </td>
+            </tr>
+          ) : (
+            data.map((row, idx) => (
+              <tr
+                key={idx}
+                onClick={() => onRowClick?.(row)}
+                className="hover:bg-zinc-50 dark:hover:bg-zinc-800 transition cursor-pointer"
+              >
+                {columns.map((col) => (
+                  <td
+                    key={col.key}
+                    className={`px-4 py-2 text-zinc-700 dark:text-zinc-300 ${col.className || ''}`}
+                    data-testid={`cell-${col.key}`}
+                  >
+                    {col.render ? col.render(row[col.key], row) : row[col.key]}
+                  </td>
+                ))}
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
+export default Table;

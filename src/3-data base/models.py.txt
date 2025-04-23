@@ -1,0 +1,102 @@
+# models.py — Enterprise Plus++
+# Criação e verificação de estrutura do banco unificado global com logs e extensibilidade
+
+import sqlite3
+import logging
+import time
+from pathlib import Path
+from datetime import datetime
+
+# === Configurações ===
+BASE_DIR = Path(".")
+DB_PATH = BASE_DIR / "global_keywords.db"
+LOG_PATH = BASE_DIR / "logs"
+LOG_PATH.mkdir(parents=True, exist_ok=True)
+
+# === Logger ===
+log_file = LOG_PATH / f"models_{datetime.now().strftime('%Y%m%d')}.log"
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler(log_file),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger("models")
+
+# === SQL das tabelas ===
+CREATE_TABELA_PALAVRAS_CHAVE = """
+CREATE TABLE IF NOT EXISTS palavras_chave (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    origem TEXT NOT NULL,
+    tema TEXT NOT NULL,
+    palavra TEXT NOT NULL,
+    tags TEXT,
+    escore REAL,
+    validado INTEGER,
+    trace_id TEXT,
+    criado_em TEXT,
+    fonte TEXT DEFAULT '',
+    metodo_geracao TEXT DEFAULT ''
+);
+"""
+
+CREATE_SCHEMA_INFO = """
+CREATE TABLE IF NOT EXISTS schema_info (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    versao TEXT NOT NULL,
+    criado_em TEXT NOT NULL
+);
+"""
+
+INSERIR_VERSAO_SQL = """
+INSERT INTO schema_info (versao, criado_em)
+VALUES (?, ?)
+"""
+
+VERSAO_ATUAL = "1.0.0-enterprise"
+
+def criar_tabelas():
+    try:
+        inicio = time.time()
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute(CREATE_TABELA_PALAVRAS_CHAVE)
+            cursor.execute(CREATE_SCHEMA_INFO)
+            cursor.execute(INSERIR_VERSAO_SQL, (VERSAO_ATUAL, datetime.utcnow().isoformat()))
+        duracao = time.time() - inicio
+        logger.info(f"✅ Tabelas criadas/verificadas em {duracao:.2f}s.")
+    except Exception as e:
+        logger.error(f"❌ Erro ao criar/verificar estrutura: {e}")
+
+
+def verificar_estrutura():
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA table_info(palavras_chave)")
+            colunas = [coluna[1] for coluna in cursor.fetchall()]
+            campos_esperados = ["origem", "tema", "palavra", "tags", "escore", "validado", "trace_id", "criado_em", "fonte", "metodo_geracao"]
+            faltantes = [campo for campo in campos_esperados if campo not in colunas]
+            if faltantes:
+                logger.warning(f"⚠️ Campos faltantes na tabela: {faltantes}")
+            else:
+                logger.info("🔍 Estrutura da tabela verificada com sucesso.")
+    except Exception as e:
+        logger.error(f"❌ Erro ao verificar estrutura: {e}")
+
+def fechar_conexao(conn):
+    try:
+        conn.close()
+        logger.info("🔚 Conexão encerrada.")
+    except Exception as e:
+        logger.error(f"❌ Erro ao fechar conexão: {e}")
+
+def conectar_banco():
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        return conn
+    except Exception as e:
+        logger.error(f"❌ Erro ao conectar banco: {e}")
+        return None

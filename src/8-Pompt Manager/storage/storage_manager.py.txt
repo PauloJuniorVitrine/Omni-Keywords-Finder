@@ -1,0 +1,112 @@
+import os
+import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor
+import boto3
+from botocore.exceptions import NoCredentialsError
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+from flask import Flask, jsonify, request
+
+# Configuração de logs
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
+# Configurações de Armazenamento
+STORAGE_TYPE = os.getenv("STORAGE_TYPE", "local")  # local, s3
+STORAGE_DIR = os.getenv("STORAGE_DIR", "./storage")
+S3_BUCKET = os.getenv("S3_BUCKET", "")
+S3_REGION = os.getenv("S3_REGION", "us-east-1")
+S3_CLIENT = boto3.client("s3") if STORAGE_TYPE == "s3" else None
+
+# Nichos e Categorias (simulação)
+NICHOS = ["Marketing", "Tecnologia", "Finanças"]
+CATEGORIAS = ["SEO", "Anúncios", "Conteúdo", "Conversão"]
+
+# Criar Estrutura de Diretórios
+
+def criar_pasta_local(path):
+    try:
+        os.makedirs(path, exist_ok=True)
+        logging.info(f"📁 Diretório garantido: {path}")
+    except PermissionError as e:
+        logging.error(f"🚨 Permissão negada ao criar {path}: {e}")
+
+
+def upload_s3(file_path, s3_path):
+    try:
+        S3_CLIENT.upload_file(file_path, S3_BUCKET, s3_path)
+        logging.info(f"✅ Arquivo enviado para S3: {s3_path}")
+    except NoCredentialsError:
+        logging.error("❌ Credenciais AWS não encontradas.")
+    except Exception as e:
+        logging.error(f"⚠️ Erro ao enviar para S3: {e}")
+
+
+def criar_estrutura():
+    if STORAGE_TYPE == "local":
+        with ThreadPoolExecutor() as executor:
+            for nicho in NICHOS:
+                for categoria in CATEGORIAS:
+                    path = os.path.join(STORAGE_DIR, nicho, categoria)
+                    executor.submit(criar_pasta_local, path)
+    elif STORAGE_TYPE == "s3":
+        for nicho in NICHOS:
+            for categoria in CATEGORIAS:
+                s3_path = f"{nicho}/{categoria}/"
+                logging.info(f"📤 Criando estrutura no S3: {s3_path}")
+
+
+def corrigir_estrutura():
+    if STORAGE_TYPE == "local":
+        for nicho in NICHOS:
+            for categoria in CATEGORIAS:
+                path = os.path.join(STORAGE_DIR, nicho, categoria)
+                if not os.path.exists(path):
+                    logging.warning(f"⚠️ Estrutura ausente, criando: {path}")
+                    criar_pasta_local(path)
+    elif STORAGE_TYPE == "s3":
+        logging.info("🔄 Sincronização de estrutura para S3 não implementada ainda.")
+
+# 🚀 Monitoramento de Diretórios com Watchdog
+class DirectoryMonitor(FileSystemEventHandler):
+    def on_created(self, event):
+        if event.is_directory:
+            logging.info(f"📂 Novo diretório detectado: {event.src_path}")
+            if STORAGE_TYPE == "s3":
+                s3_path = event.src_path.replace(STORAGE_DIR, "").strip("/")
+                upload_s3(event.src_path, s3_path)
+
+observer = Observer()
+observer.schedule(DirectoryMonitor(), path=STORAGE_DIR, recursive=True)
+observer.start()
+
+# 🌐 API REST para Gerenciamento de Armazenamento
+app = Flask(__name__)
+
+@app.route("/api/storage/sync", methods=["POST"])
+def sync_structure():
+    corrigir_estrutura()
+    return jsonify({"message": "Estrutura sincronizada com sucesso!"})
+
+@app.route("/api/storage/upload", methods=["POST"])
+def upload_file():
+    file = request.files.get("file")
+    if not file:
+        return jsonify({"error": "Nenhum arquivo enviado"}), 400
+    
+    file_path = os.path.join(STORAGE_DIR, file.filename)
+    file.save(file_path)
+    logging.info(f"📂 Arquivo salvo: {file_path}")
+    
+    if STORAGE_TYPE == "s3":
+        upload_s3(file_path, file.filename)
+    
+    return jsonify({"message": "Arquivo armazenado com sucesso!"})
+
+if __name__ == "__main__":
+    logging.info("🔄 Verificando e corrigindo estrutura de armazenamento...")
+    corrigir_estrutura()
+    app.run(debug=True, port=5001)

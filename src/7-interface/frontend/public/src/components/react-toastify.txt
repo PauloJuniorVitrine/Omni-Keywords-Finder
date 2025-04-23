@@ -1,0 +1,94 @@
+import React, { Suspense, useContext, useEffect, useState } from "react";
+import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+import Navbar from "./components/Navbar";
+import Sidebar from "./components/Sidebar";
+import { AuthContext, AuthProvider } from "./context/AuthContext";
+import { ThemeProvider } from "./context/ThemeContext";
+import Loader from "./components/Loader";
+import { registerSW } from "./serviceWorker";
+import { trackPageView } from "./utils/analytics";
+import { ToastContainer, toast } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
+import useDarkMode from "./hooks/useDarkMode";
+import useApiUrl from "./hooks/useApiUrl";
+import useSessionWebSocket from "./hooks/useSessionWebSocket";
+import usePagePreload from "./hooks/usePagePreload";
+import useCache from "./hooks/useCache";
+import { useCookies } from "react-cookie";
+
+const Home = React.lazy(() => import("./pages/Home"));
+const Nichos = React.lazy(() => import("./pages/Nichos"));
+const Templates = React.lazy(() => import("./pages/Templates"));
+const Configuracoes = React.lazy(() => import("./pages/Configuracoes"));
+const Login = React.lazy(() => import("./pages/Login"));
+
+const ProtectedRoute = ({ children }) => {
+    const { user } = useContext(AuthContext);
+    return user ? children : <Navigate to="/login" />;
+};
+
+const App = () => {
+    const { user, refreshSession } = useContext(AuthContext);
+    const { darkMode, setDarkMode } = useDarkMode();
+    const { apiUrl, setApiUrl, validateUrl } = useApiUrl();
+    const [cookies, setCookie] = useCookies(["darkMode", "apiUrl"]);
+    const { cache, setCache } = useCache();
+    const [loading, setLoading] = useState(false);
+
+    useSessionWebSocket(); // 🧠 WebSocket para atualizar sessão em tempo real
+    usePagePreload([Home, Nichos, Templates, Configuracoes]); // ⚡ Pré-carregamento avançado
+
+    useEffect(() => {
+        refreshSession();  // 🔄 Garante persistência de sessão ao recarregar a página
+        registerSW();  // 🚀 Registra o Service Worker para o modo offline
+    }, []);
+
+    useEffect(() => {
+        trackPageView();  // 📊 Rastreia visitas em cada página
+    }, []);
+
+    useEffect(() => {
+        setCookie("darkMode", darkMode, { path: "/", secure: true, sameSite: "Strict" });
+        setCookie("apiUrl", apiUrl, { path: "/", secure: true, sameSite: "Strict" });
+    }, [darkMode, apiUrl]);
+
+    const saveSettings = () => {
+        if (!validateUrl(apiUrl)) {
+            toast.error("❌ URL inválida. Digite um endereço válido.");
+            return;
+        }
+        setLoading(true);
+        setTimeout(() => {
+            toast.success("✅ Configurações salvas com sucesso!");
+            setLoading(false);
+        }, 1000);
+    };
+
+    return (
+        <ThemeProvider value={{ darkMode, setDarkMode }}>
+            <AuthProvider>
+                <Router>
+                    {user && <Navbar aria-label="Barra de navegação" />}
+                    <div className="app-container" role="main">
+                        {user && <Sidebar aria-label="Menu lateral" />}
+                        <div className="content">
+                            <Suspense fallback={<Loader />}>
+                                <Routes>
+                                    <Route path="/" element={<Home />} />
+                                    <Route path="/login" element={<Login />} />
+                                    <Route path="/nichos" element={<ProtectedRoute><Nichos /></ProtectedRoute>} />
+                                    <Route path="/templates" element={<ProtectedRoute><Templates /></ProtectedRoute>} />
+                                    <Route path="/configuracoes" element={<ProtectedRoute><Configuracoes saveSettings={saveSettings} setApiUrl={setApiUrl} apiUrl={apiUrl} loading={loading} /></ProtectedRoute>} />
+                                    <Route path="*" element={<Navigate to="/" />} />
+                                </Routes>
+                            </Suspense>
+                        </div>
+                    </div>
+                    <ToastContainer position="bottom-right" autoClose={3000} />
+                </Router>
+            </AuthProvider>
+        </ThemeProvider>
+    );
+};
+
+export default App;

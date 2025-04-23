@@ -1,0 +1,69 @@
+name: 🔍 CoCoT GPT-4o Auditor
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+env:
+  PYTHON_VERSION: '3.10'
+  OPENAI_MODEL: 'gpt-4o'
+
+jobs:
+  audit:
+    name: 🔍 Auditoria Completa
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 📂 Checkout do Código
+      uses: actions/checkout@v4
+
+    - name: 🌐 Setup do Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: ⚙️ Instalar dependências
+      run: |
+        python -m venv venv
+        source venv/bin/activate
+        pip install -r requirements.txt
+
+    - name: 🧠 Rodar Auditor GPT-4o
+      run: |
+        python scripts/omni_audit.py \
+          --api_key ${{ secrets.OPENAI_API_KEY }} \
+          --model $OPENAI_MODEL \
+          --src_path src/ \
+          --prompt_file prompts/Super_Prompt_Auditor.txt \
+          --output_dir relatorios/ \
+          --max_tokens 32000
+      env:
+        OPENAI_MODEL: ${{ env.OPENAI_MODEL }}
+
+    - name: ♻️ Aplicar Refatorador
+      run: |
+        python scripts/refatorador.py \
+          --input relatorios/diagnostico.json \
+          --apply_changes \
+          --model $OPENAI_MODEL
+      env:
+        OPENAI_MODEL: ${{ env.OPENAI_MODEL }}
+
+    - name: 🔮 Executar Testes Automatizados
+      run: |
+        pytest --cov=src --cov-report=xml
+
+    - name: 📄 Gerar Manifesto
+      run: |
+        python scripts/gerar_manifesto.py \
+          --input relatorios/ \
+          --output manifesto_tecnico.md
+
+    - name: 📤 Publicar Relatórios
+      uses: actions/upload-artifact@v3
+      with:
+        name: relatorios-gpt4o
+        path: |
+          relatorios/
+          manifesto_tecnico.md
