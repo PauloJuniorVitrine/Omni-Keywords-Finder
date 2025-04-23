@@ -1,0 +1,96 @@
+name: COCOT Ultra CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: '3.10'
+  MAX_RETRIES: 3
+  TIMEOUT_MINUTES: 30
+  DOCKER_COMPOSE_VERSION: '2.20.0'
+  OPENAI_MODEL: 'gpt-4o'
+
+jobs:
+  setup:
+    name: 🛠️ Setup Environment
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      python-version: ${{ steps.setup-python.outputs.python-version }}
+      cache-hit: ${{ steps.cache-deps.outputs.cache-hit }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup Python ${{ env.PYTHON_VERSION }}
+      id: setup-python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+
+    - name: Cache dependencies
+      id: cache-deps
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/pip
+          venv/
+        key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends           redis-server           docker.io           docker-compose-plugin=${{ env.DOCKER_COMPOSE_VERSION }}
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install safety bandit
+
+  test:
+    name: 🥚 Run Tests
+    needs: setup
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        test-type: ["unitario", "integracao", "e2e", "carga"]
+      max-parallel: 2
+      fail-fast: false
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Run ${{ matrix.test-type }} tests
+      run: |
+        if [ "${{ matrix.test-type }}" = "carga" ]; then
+          timeout 2700 python scripts/test_runner.py carga             --module "app"             --config config/test_config.json             --model $OPENAI_MODEL
+        else
+          python scripts/test_runner.py ${{ matrix.test-type }}             --module "app"             --config config/test_config.json             --model $OPENAI_MODEL
+        fi
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        REDIS_URL: "redis://localhost:6379"
+        OPENAI_MODEL: ${{ env.OPENAI_MODEL }}
+
+    - name: Upload test results
+      if: always() && matrix.test-type != 'carga'
+      uses: actions/upload-artifact@v3
+      with:
+        name: ${{ matrix.test-type }}-test-results
+        path: |
+          test-reports/
+          *.log
